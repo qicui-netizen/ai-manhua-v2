@@ -25,8 +25,8 @@ export async function POST(req: Request) {
     ? (await runImageEditPrompt(promptInput)) || offlineImageEditPrompt(promptInput)
     : offlineImageEditPrompt(promptInput);
 
-  if (!editResult.editPrompt) {
-    return NextResponse.json({ panelId: panel.panelId, status: "error", notes: editResult.notes || "内容被拦截" });
+  if (editResult.blocked || !editResult.editPrompt) {
+    return NextResponse.json({ panelId: panel.panelId, status: "error", notes: editResult.notes || "内容未通过安全审核" });
   }
   if (!process.env.SILICONFLOW_API_KEY) {
     return NextResponse.json({ panelId: panel.panelId, status: "error", notes: "未配置 SILICONFLOW_API_KEY" });
@@ -48,6 +48,6 @@ export async function POST(req: Request) {
   }
 
   const gen = await generateImageWithRetry({ editPrompt: editResult.editPrompt, negativePrompt: editResult.negativePrompt, images });
-  if (!gen) return NextResponse.json({ panelId: panel.panelId, status: "error", notes: "生成失败(已重试)" });
+  if (!gen.url) return NextResponse.json({ panelId: panel.panelId, status: "error", notes: gen.error || "生成失败(已重试)" });
   return NextResponse.json({ panelId: panel.panelId, status: "done", imageUrl: gen.url, editPrompt: editResult.editPrompt });
 }

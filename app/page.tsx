@@ -1,24 +1,51 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { loadProjects, loadCharacters, getQuota, FREE_MONTHLY_QUOTA } from "@/lib/store";
+import { useRouter } from "next/navigation";
+import { loadProjects, loadCharacters, getQuota, deleteProject, getUserProfile, FREE_MONTHLY_QUOTA } from "@/lib/store";
+import { CHARACTERS } from "@/lib/data";
 import type { Project, Character } from "@/lib/types";
 
+const SEED_IDS = new Set(CHARACTERS.map((c) => c.id));
+
+const ONBOARD_KEY = "pf_onboarded_v1";
+
 export default function WorkspacePage() {
+  const router = useRouter();
+  const [ready, setReady] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [quota, setQuota] = useState(FREE_MONTHLY_QUOTA);
+  const [avatar, setAvatar] = useState("");
 
   useEffect(() => {
+    // 仅"真正首次访问"引导到新建角色卡(一次性标记);之后点工作台Tab正常显示,
+    // 否则没建角色前工作台永远进不去,返回键也会陷入循环
+    const isFirstVisit =
+      !localStorage.getItem(ONBOARD_KEY) &&
+      loadProjects().length === 0 &&
+      !loadCharacters().some((c) => !SEED_IDS.has(c.id));
+    if (isFirstVisit) {
+      localStorage.setItem(ONBOARD_KEY, "1");
+      router.replace("/characters/new");
+      return; // 保持 ready=false,重定向期间不闪现工作台内容
+    }
     const refresh = () => {
       setProjects(loadProjects());
       setCharacters(loadCharacters());
       setQuota(getQuota());
+      setAvatar(getUserProfile().avatar);
     };
     refresh();
+    setReady(true);
     window.addEventListener("pf:update", refresh);
     return () => window.removeEventListener("pf:update", refresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  if (!ready) {
+    return <div className="flex min-h-full items-center justify-center"><div className="pf-spinner" /></div>;
+  }
 
   const hasContent = projects.length > 0;
   const usedRatio = Math.round(((FREE_MONTHLY_QUOTA - quota) / FREE_MONTHLY_QUOTA) * 100);
@@ -34,9 +61,14 @@ export default function WorkspacePage() {
         </div>
         <Link
           href="/profile"
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] text-lg"
+          className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] text-lg"
         >
-          👤
+          {avatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={avatar} alt="我的" className="h-full w-full object-cover" />
+          ) : (
+            "👤"
+          )}
         </Link>
       </div>
 
@@ -120,6 +152,7 @@ function EmptyState() {
 
 function ContentState({ projects, characters }: { projects: Project[]; characters: Character[] }) {
   const draft = projects.find((p) => p.status !== "exported");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   return (
     <div className="pb-8">
       {draft && (
@@ -175,7 +208,34 @@ function ContentState({ projects, characters }: { projects: Project[]; character
       </div>
       <div className="mt-2.5 grid grid-cols-2 gap-2.5">
         {projects.map((p) => (
-          <Link key={p.id} href={`/project/${p.id}/storyboard`} className="pf-card p-3">
+          <Link
+            key={p.id}
+            href={`/project/${p.id}/storyboard`}
+            className="pf-card relative p-3"
+            onClick={() => setDeletingId(null)}
+          >
+            <button
+              onClick={(e) => {
+                // 阻止触发外层 Link 跳转
+                e.preventDefault();
+                e.stopPropagation();
+                if (deletingId === p.id) {
+                  deleteProject(p.id);
+                  setDeletingId(null);
+                } else {
+                  setDeletingId(p.id);
+                }
+              }}
+              aria-label={`删除作品${p.title}`}
+              className="absolute right-2 top-2 z-10 rounded-lg border px-2 py-1 text-[10px] font-semibold"
+              style={{
+                borderColor: deletingId === p.id ? "var(--color-error)" : "var(--color-border)",
+                background: deletingId === p.id ? "rgba(239,68,68,0.9)" : "rgba(0,0,0,0.45)",
+                color: deletingId === p.id ? "#fff" : "var(--color-text-sub)",
+              }}
+            >
+              {deletingId === p.id ? "确认删除?" : "删除"}
+            </button>
             <div className="mb-2 flex aspect-[3/4] items-center justify-center overflow-hidden rounded-lg bg-[var(--color-surface-2)]">
               {p.panels[0]?.imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element

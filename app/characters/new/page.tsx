@@ -3,7 +3,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveCharacter, newId } from "@/lib/store";
 import { DEFAULT_AVATAR_POOL } from "@/lib/data";
-import type { Character, UploadedImage, LockLevel } from "@/lib/types";
+import LockTraitsEditor, { type LockedTraits } from "@/components/LockTraitsEditor";
+import type { Character, UploadedImage } from "@/lib/types";
 
 // 手机照片动辄数 MB(iPhone 还是 HEIC),原图直接转 base64 会卡顿且撑爆 localStorage(约5MB上限),
 // 统一缩放到最长边 1024 并重编码为 JPEG 后再入库。
@@ -52,7 +53,9 @@ export default function NewCharacterPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [lockedTraits, setLockedTraits] = useState<{ face: LockLevel; hair: LockLevel; outfit: LockLevel; color: LockLevel }>({
+  const [analyzing, setAnalyzing] = useState(false);
+  const [styleHint, setStyleHint] = useState("");
+  const [lockedTraits, setLockedTraits] = useState<LockedTraits>({
     face: "强锁定",
     hair: "强锁定",
     outfit: "弱锁定",
@@ -70,6 +73,7 @@ export default function NewCharacterPage() {
     try {
       const list = files.slice(0, 6 - images.length);
       const uploaded: UploadedImage[] = [];
+      // 图片不做机器审核(成本考虑),由生成模型侧的内置审核兜底
       for (const file of list) {
         try {
           const url = await readAndCompress(file);
@@ -79,25 +83,56 @@ export default function NewCharacterPage() {
         }
       }
       if (uploaded.length > 0) {
+        const isFirstBatch = images.length === 0;
         setImages((prev) => {
           const merged = [...prev, ...uploaded].slice(0, 6);
           return merged.map((img, i) => ({ ...img, role: i === 0 ? ("primary" as const) : ("secondary" as const) }));
         });
+        // 首张主图上传后,AI 自动提取画风与人物形象填充外貌描述(用户可改;失败静默跳过)
+        if (isFirstBatch) analyzeMainImage(uploaded[0].url);
       }
+      const notices: string[] = [];
       if (uploaded.length < list.length) {
-        setUploadError(`有 ${list.length - uploaded.length} 张图片格式不支持，已跳过（建议用 JPG/PNG）`);
+        notices.push(`有 ${list.length - uploaded.length} 张图片格式不支持，已跳过（建议用 JPG/PNG）`);
       }
+      if (files.length > list.length) {
+        notices.push(`超出 6 张上限，已忽略 ${files.length - list.length} 张`);
+      }
+      if (notices.length > 0) setUploadError(notices.join("；"));
     } finally {
       setUploading(false);
     }
   }
 
-  function toggleLock(field: keyof typeof lockedTraits) {
-    setLockedTraits((prev) => {
-      const order: LockLevel[] = ["强锁定", "弱锁定", "不锁定"];
-      const next = order[(order.indexOf(prev[field]) + 1) % order.length];
-      return { ...prev, [field]: next };
-    });
+  async function analyzeMainImage(dataUrl: string) {
+    setAnalyzing(true);
+    try {
+      const res = await fetch("/api/analyze-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageDataUrl: dataUrl }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.style) setStyleHint(data.style);
+      // 外貌描述为空时才自动填充,不覆盖用户已写内容
+      if (data.appearance) {
+        setDesc((prev) => (prev.trim() ? prev : [data.genderAge, data.appearance].filter(Boolean).join("，")));
+      }
+    } catch {
+      /* 解析失败不阻塞创建流程 */
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  function removeImage(id: string) {
+    setImages((prev) =>
+      prev
+        .filter((x) => x.id !== id)
+        .map((img, i) => ({ ...img, role: i === 0 ? ("primary" as const) : ("secondary" as const) }))
+    );
+    setUploadError(""); // 删除后"已满6张"之类的过期提示立即清除
   }
 
   function goBack() {
@@ -109,10 +144,27 @@ export default function NewCharacterPage() {
     router.push("/characters");
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (saving) return; // 防移动端双击创建两张重复角色卡
     setSaving(true);
     const finalName = name.trim() || "新角色";
+
+    // 角色设定文本过内容审核,违禁设定不入库
+    try {
+      const mod = await fetch("/api/moderate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: `角色名:${finalName}\n外貌:${desc}\n性格:${personality}`, scene: "character_text" }),
+      }).then((r) => r.json());
+      if (mod.decision === "BLOCK") {
+        setUploadError(`角色设定未通过内容审核：${mod.reason || "请调整后重试"}`);
+        setStep(1);
+        setSaving(false);
+        return;
+      }
+    } catch {
+      // 审核服务异常时降级放行(生成链路仍有服务端兜底审核)
+    }
     const referenceImages: UploadedImage[] =
       images.length > 0
         ? images
@@ -124,7 +176,7 @@ export default function NewCharacterPage() {
       ownershipType,
       source: images.length > 0 ? "photo_upload" : "text_only",
       ageFeel: "",
-      canon: `${finalName},${desc || "外貌描述待补充"}${personality ? `,性格:${personality}` : ""}`,
+      canon: `${finalName},${desc || "外貌描述待补充"}${personality ? `,性格:${personality}` : ""}${styleHint ? `,画风参考:${styleHint}` : ""}`,
       outfit: "",
       referenceImages,
       visual: { hair: "#7c3aed", hairStyle: "long", skin: "#ffe7d6", eye: "#374151", accent: "#a855f7" },
@@ -164,10 +216,30 @@ export default function NewCharacterPage() {
               className="mb-4 block cursor-pointer rounded-2xl border-[1.5px] border-dashed border-[var(--color-border-light)] p-6 text-center"
             >
               {images.length > 0 ? (
-                <div className="mb-3 flex flex-wrap justify-center gap-2">
-                  {images.map((img) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img key={img.id} src={img.url} alt="" className="h-16 w-16 rounded-lg object-cover" />
+                <div className="mb-3 flex flex-wrap justify-center gap-2.5 pt-1.5">
+                  {images.map((img, i) => (
+                    <div key={img.id} className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={img.url} alt="" className="h-16 w-16 rounded-lg object-cover" />
+                      {i === 0 && (
+                        <span className="absolute bottom-0 left-0 right-0 rounded-b-lg bg-black/60 text-center text-[9px] text-white">
+                          主图
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        aria-label="删除这张参考图"
+                        onClick={(e) => {
+                          // 阻止冒泡到 label,否则会弹出文件选择框
+                          e.preventDefault();
+                          e.stopPropagation();
+                          removeImage(img.id);
+                        }}
+                        className="absolute -right-2 -top-2 flex h-5.5 w-5.5 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-bold text-[var(--color-error)]"
+                      >
+                        ×
+                      </button>
+                    </div>
                   ))}
                 </div>
               ) : (
@@ -206,11 +278,15 @@ export default function NewCharacterPage() {
                 <input className="pf-input" placeholder="例如：云绯" value={name} onChange={(e) => setName(e.target.value)} />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs text-[var(--color-text-sub)]">外貌描述</label>
+                <label className="mb-1.5 block text-xs text-[var(--color-text-sub)]">
+                  外貌描述
+                  {analyzing && <span className="ml-2 text-[var(--color-primary-light)]">✦ AI 正在识别图片…</span>}
+                  {!analyzing && styleHint && <span className="ml-2 text-[var(--color-text-dim)]">画风：{styleHint}</span>}
+                </label>
                 <textarea
                   className="pf-input resize-none"
                   rows={2}
-                  placeholder="粉色长发，红色瞳孔，活泼可爱的高中女生…"
+                  placeholder="粉色长发，红色瞳孔，活泼可爱的高中女生…（上传图片后 AI 自动识别填充）"
                   value={desc}
                   onChange={(e) => setDesc(e.target.value)}
                 />
@@ -249,33 +325,9 @@ export default function NewCharacterPage() {
           </>
         ) : (
           <>
-            <p className="mb-3.5 text-xs text-[var(--color-text-sub)]">设置强锁定特征，生成时 AI 会严格保持</p>
-            <div className="mb-4 flex flex-col gap-2">
-              {(
-                [
-                  { key: "face", label: "面部", emoji: "👤" },
-                  { key: "hair", label: "发色", emoji: "💇" },
-                  { key: "outfit", label: "主服装", emoji: "👗" },
-                  { key: "color", label: "色调", emoji: "🎨" },
-                ] as const
-              ).map((f) => (
-                <div key={f.key} className="flex items-center gap-3 rounded-xl bg-[var(--color-surface-2)] p-3">
-                  <span className="text-xl">{f.emoji}</span>
-                  <div className="flex-1">
-                    <p className="text-xs text-[var(--color-text-dim)]">{f.label}</p>
-                  </div>
-                  <button
-                    onClick={() => toggleLock(f.key)}
-                    className="rounded-lg border border-[var(--color-border)] px-3 py-1 text-xs font-bold"
-                    style={{
-                      background: lockedTraits[f.key] === "强锁定" ? "var(--color-primary)" : "var(--color-surface)",
-                      color: lockedTraits[f.key] === "强锁定" ? "#fff" : "var(--color-text-dim)",
-                    }}
-                  >
-                    {lockedTraits[f.key]}
-                  </button>
-                </div>
-              ))}
+            <p className="mb-3.5 text-xs text-[var(--color-text-sub)]">选择每项特征的锁定等级，生成时 AI 按此保持角色一致性</p>
+            <div className="mb-4">
+              <LockTraitsEditor value={lockedTraits} onChange={setLockedTraits} />
             </div>
 
             {images.length === 0 && (

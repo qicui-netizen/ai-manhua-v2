@@ -15,9 +15,11 @@ export type GenerateImageInput = {
   seed?: number;
 };
 
-export async function generateImage(input: GenerateImageInput): Promise<{ url: string; seed?: number } | null> {
+export type GenerateImageResult = { url?: string; seed?: number; error?: string };
+
+export async function generateImage(input: GenerateImageInput): Promise<GenerateImageResult> {
   const apiKey = process.env.SILICONFLOW_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) return { error: "未配置 SILICONFLOW_API_KEY" };
   if (input.images.length > 4) {
     throw new Error(`最多支持 4 张参考图,实际传入 ${input.images.length} 张`);
   }
@@ -45,12 +47,17 @@ export async function generateImage(input: GenerateImageInput): Promise<{ url: s
     const data = await r.json();
     if (!r.ok || !data?.images?.length) {
       console.error("[siliconflow] generate failed", r.status, JSON.stringify(data).slice(0, 500));
-      return null;
+      // 把 API 的真实原因透传给用户界面,而不是笼统的"生成失败"
+      const friendly =
+        data?.code === 30001
+          ? "硅基流动账户余额不足，请充值后重试"
+          : `生成接口错误：${data?.message || `HTTP ${r.status}`}`;
+      return { error: friendly };
     }
     return { url: data.images[0].url, seed: data.seed };
   } catch (e) {
     console.error("[siliconflow] generate error", e);
-    return null;
+    return { error: "网络异常，请求生图服务失败" };
   }
 }
 
@@ -59,12 +66,16 @@ export async function generateImage(input: GenerateImageInput): Promise<{ url: s
 export async function generateImageWithRetry(
   input: GenerateImageInput,
   maxRetries = 1
-): Promise<{ url: string; seed?: number } | null> {
+): Promise<GenerateImageResult> {
+  let last: GenerateImageResult = { error: "生成失败(已重试)" };
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const result = await generateImage(input);
-    if (result) return result;
+    if (result.url) return result;
+    last = result;
+    // 余额不足/缺key这类确定性错误,重试也不会成功
+    if (result.error?.includes("余额不足") || result.error?.includes("API_KEY")) break;
   }
-  return null;
+  return last;
 }
 
 // 把参考图 URL 统一解析成硅基流动接口可用的形式:

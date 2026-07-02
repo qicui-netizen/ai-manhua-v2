@@ -43,8 +43,8 @@ export async function POST(req: Request) {
       ? (await runImageEditPrompt(promptInput)) || offlineImageEditPrompt(promptInput)
       : offlineImageEditPrompt(promptInput);
 
-    if (!editResult.editPrompt) {
-      return { panelId: panel.panelId, status: "error" as const, notes: editResult.notes || "内容被拦截" };
+    if (editResult.blocked || !editResult.editPrompt) {
+      return { panelId: panel.panelId, status: "error" as const, notes: editResult.notes || "内容未通过安全审核" };
     }
 
     if (!hasImageKey) {
@@ -78,7 +78,7 @@ export async function POST(req: Request) {
       negativePrompt: editResult.negativePrompt,
       images,
     });
-    if (!gen) return { panelId: panel.panelId, status: "error" as const, notes: "生成失败(已重试)" };
+    if (!gen.url) return { panelId: panel.panelId, status: "error" as const, notes: gen.error || "生成失败(已重试)" };
     return { panelId: panel.panelId, status: "done" as const, imageUrl: gen.url, editPrompt: editResult.editPrompt };
   });
 

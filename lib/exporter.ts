@@ -1,8 +1,8 @@
 "use client";
 // 导出合成器:纯前端 canvas,把多格图 + 气泡合成成目标平台尺寸的 PNG,免费层打水印。
 import type { Project } from "./types";
-import type { Platform } from "./data";
-import { layoutBubbles } from "./bubbles";
+import { platformOf, type Platform } from "./data";
+import { layoutBubbles, anchorToPos } from "./bubbles";
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -12,6 +12,36 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     img.onerror = reject;
     img.src = src;
   });
+}
+
+// 按 cover 方式画图:居中裁剪填满格子,不拉伸变形(与页面上 object-cover 的 <img> 预览一致)
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  ox: number,
+  oy: number,
+  cellW: number,
+  cellH: number
+) {
+  const scale = Math.max(cellW / img.width, cellH / img.height);
+  const sw = cellW / scale;
+  const sh = cellH / scale;
+  const sx = (img.width - sw) / 2;
+  const sy = (img.height - sh) / 2;
+  ctx.drawImage(img, sx, sy, sw, sh, ox, oy, cellW, cellH);
+}
+
+// 导出时单个格子的高宽比(与 composeExport 的拼图规则一致),预览沿用保证所见即所得
+function exportCellRatio(project: Project): number {
+  const platform = platformOf(project.targetPlatform);
+  if (platform.grid) return 1;
+  if (platform.height) {
+    const n = Math.max(1, project.panels.length);
+    const cols = Math.ceil(Math.sqrt(n));
+    const rows = Math.ceil(n / cols);
+    return platform.height / rows / (platform.width / cols);
+  }
+  return 4 / 3; // 条漫竖格
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -24,58 +54,135 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-function drawWrapped(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, lh: number) {
+// 按字符折行(中文无空格,逐字测量)
+function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
   const chars = [...text];
+  const lines: string[] = [];
   let line = "";
-  let yy = y;
   for (const ch of chars) {
     if (ctx.measureText(line + ch).width > maxW && line) {
-      ctx.fillText(line, x, yy);
+      lines.push(line);
       line = ch;
-      yy += lh;
     } else line += ch;
   }
-  if (line) ctx.fillText(line, x, yy);
-  return yy;
+  if (line) lines.push(line);
+  return lines;
 }
 
-function drawBubbles(ctx: CanvasRenderingContext2D, project: Project, panelIdx: number, ox: number, oy: number, cell: number) {
+// 爆炸泡:锯齿星形路径
+function burstPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number) {
+  const spikes = 14;
+  ctx.beginPath();
+  for (let i = 0; i < spikes * 2; i++) {
+    const angle = (Math.PI * i) / spikes - Math.PI / 2;
+    const k = i % 2 === 0 ? 1 : 0.78;
+    const x = cx + Math.cos(angle) * rx * k;
+    const y = cy + Math.sin(angle) * ry * k;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+type BubbleBox = { x: number; y: number; w: number; h: number };
+
+function rectsOverlap(a: BubbleBox, b: BubbleBox): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+// 气泡渲染:白底黑字黑描边,三种形状(方框/椭圆对话泡/爆炸泡),
+// 位置按九宫格 anchor、白底透明度按用户设置,与编辑页预览同一套规则。
+// 格子支持非正方形(cellW/cellH);多个气泡相交时后画的自动垂直让位。
+function drawBubbles(
+  ctx: CanvasRenderingContext2D,
+  project: Project,
+  panelIdx: number,
+  ox: number,
+  oy: number,
+  cellW: number,
+  cellH: number
+) {
   const panel = project.panels[panelIdx];
   const bubbles = layoutBubbles(panel);
+  const base = Math.min(cellW, cellH);
+  const placed: BubbleBox[] = [];
   for (const b of bubbles) {
-    const fs = Math.round(cell * 0.045);
+    const { shape, anchor, opacity } = b.style;
+    const fs = Math.round(base * (b.type === "caption" ? 0.042 : 0.046));
+    const lh = fs * 1.45;
     ctx.font = `600 ${fs}px "PingFang SC", system-ui, sans-serif`;
-    const bw = b.w * cell;
-    const padX = cell * 0.025;
-    if (b.type === "caption") {
-      const h = cell * 0.085;
-      ctx.fillStyle = "rgba(20,18,32,0.78)";
-      roundRect(ctx, ox + b.x * cell, oy + b.y * cell, bw, h, h * 0.25);
-      ctx.fill();
-      ctx.fillStyle = "#fff";
-      ctx.textBaseline = "middle";
-      ctx.fillText(b.text.slice(0, 24), ox + b.x * cell + padX, oy + b.y * cell + h / 2);
-    } else {
-      const lines = Math.ceil(ctx.measureText(b.text).width / (bw - padX * 2)) || 1;
-      const h = fs * 1.5 * lines + padX * 2;
-      const bx = ox + b.x * cell;
-      const by = oy + b.y * cell;
-      ctx.fillStyle = "rgba(255,255,255,0.95)";
-      ctx.strokeStyle = "#2a2540";
-      ctx.lineWidth = Math.max(2, cell * 0.004);
-      roundRect(ctx, bx, by, bw, h, cell * 0.04);
+
+    const maxTextW = cellW * (shape === "burst" ? 0.42 : shape === "oval" ? 0.5 : 0.72);
+    const lines = wrapLines(ctx, b.text, maxTextW);
+    const textW = Math.max(...lines.map((l) => ctx.measureText(l).width));
+    const padX = fs * 0.9;
+    const padY = fs * 0.6;
+    let bw = textW + padX * 2;
+    let bh = lines.length * lh + padY * 2;
+    // 椭圆/锯齿边缘会吃掉内容区,整体放大保证文字不顶边
+    if (shape === "oval") {
+      bw *= 1.25;
+      bh *= 1.5;
+    } else if (shape === "burst") {
+      bw *= 1.55;
+      bh *= 1.9;
+    }
+    bw = Math.min(bw, cellW * 0.92);
+    bh = Math.min(bh, cellH * 0.92);
+
+    const pos = anchorToPos(anchor, bw / cellW, bh / cellH);
+    const bx = ox + pos.x * cellW;
+    let by = oy + pos.y * cellH;
+
+    // 防重叠:与已放置气泡相交时,往格内空间更大的方向垂直推开(旁白先画占位,对白让位)
+    const gap = base * 0.02;
+    for (const other of placed) {
+      if (rectsOverlap({ x: bx, y: by, w: bw, h: bh }, other)) {
+        const pushDown = other.y + other.h + gap;
+        const pushUp = other.y - bh - gap;
+        if (pushDown + bh <= oy + cellH - gap) by = pushDown;
+        else if (pushUp >= oy + gap) by = pushUp;
+      }
+    }
+    placed.push({ x: bx, y: by, w: bw, h: bh });
+
+    const cx = bx + bw / 2;
+    const cy = by + bh / 2;
+
+    ctx.save();
+    ctx.fillStyle = `rgba(255,255,255,${opacity})`;
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = Math.max(1.5, base * 0.006);
+
+    if (shape === "oval" && b.type === "speech") {
+      // 先画尾巴,椭圆随后覆盖连接处
+      ctx.beginPath();
+      ctx.moveTo(cx - bw * 0.12, cy + bh * 0.3);
+      ctx.lineTo(cx - bw * 0.3, cy + bh * 0.5 + bh * 0.26);
+      ctx.lineTo(cx + bw * 0.08, cy + bh * 0.34);
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(bx + bw * 0.2, by + h - 1);
-      ctx.lineTo(bx + bw * 0.12, by + h + cell * 0.05);
-      ctx.lineTo(bx + bw * 0.32, by + h - 1);
-      ctx.fillStyle = "rgba(255,255,255,0.95)";
-      ctx.fill();
-      ctx.fillStyle = "#2a2540";
-      ctx.textBaseline = "top";
-      drawWrapped(ctx, b.text, bx + padX, by + padX, bw - padX * 2, fs * 1.5);
     }
+
+    if (shape === "box") {
+      roundRect(ctx, bx, by, bw, bh, fs * 0.35);
+    } else if (shape === "oval") {
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, bw / 2, bh / 2, 0, 0, Math.PI * 2);
+    } else {
+      burstPath(ctx, cx, cy, bw / 2, bh / 2);
+    }
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#111";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const startY = cy - ((lines.length - 1) * lh) / 2;
+    lines.forEach((l, i) => ctx.fillText(l, cx, startY + i * lh));
+    ctx.restore();
+    ctx.textAlign = "left";
   }
 }
 
@@ -93,6 +200,37 @@ function watermark(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.textAlign = "left";
 }
 
+// 气泡编辑页的实时预览:与导出用同一套 drawBubbles 和格子比例,保证"看到的=导出的"。
+// opts.isStale:异步加载图片期间用户可能已切到别的格子,过期渲染不落笔(防竞态串图)。
+export async function renderPanelWithBubbles(
+  canvas: HTMLCanvasElement,
+  project: Project,
+  panelIdx: number,
+  opts?: { isStale?: () => boolean; size?: number }
+) {
+  const panel = project.panels[panelIdx];
+  const size = opts?.size ?? 720;
+  const cellH = Math.round(size * exportCellRatio(project));
+
+  let img: HTMLImageElement | null = null;
+  if (panel.imageUrl) {
+    try {
+      img = await loadImage(panel.imageUrl);
+    } catch {
+      /* 旧远程图可能过期/无CORS,保留底色 */
+    }
+  }
+  if (opts?.isStale?.()) return; // 已切走,放弃本次渲染
+
+  canvas.width = size;
+  canvas.height = cellH;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#1a1a2e";
+  ctx.fillRect(0, 0, size, cellH);
+  if (img) drawImageCover(ctx, img, 0, 0, size, cellH);
+  drawBubbles(ctx, project, panelIdx, 0, 0, size, cellH);
+}
+
 export async function composeExport(
   project: Project,
   platform: Platform,
@@ -105,6 +243,7 @@ export async function composeExport(
   const ctx = canvas.getContext("2d")!;
 
   if (platform.grid) {
+    // 九宫格平台:固定 3×3 切图
     const n = Math.min(9, validPanels.length);
     const cell = Math.round((platform.width / 3) * scale);
     canvas.width = cell * 3;
@@ -115,25 +254,48 @@ export async function composeExport(
       const ox = (i % 3) * cell;
       const oy = Math.floor(i / 3) * cell;
       const panelIdx = project.panels.indexOf(validPanels[i]);
-      if (imgs[i]) ctx.drawImage(imgs[i], ox, oy, cell, cell);
-      drawBubbles(ctx, project, panelIdx, ox, oy, cell);
+      if (imgs[i]) drawImageCover(ctx, imgs[i], ox, oy, cell, cell);
+      drawBubbles(ctx, project, panelIdx, ox, oy, cell, cell);
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 4;
       ctx.strokeRect(ox, oy, cell, cell);
     }
-  } else {
-    const width = Math.round(platform.width * scale);
-    const cell = width;
+  } else if (platform.height) {
+    // 有目标尺寸的平台(方图1:1/竖图3:4):按格数拼网格,整图保持平台比例
+    // 4格→2×2,9格→3×3,6格→2列3行
     const n = validPanels.length;
-    canvas.width = width;
-    canvas.height = cell * n;
+    const cols = Math.ceil(Math.sqrt(n));
+    const rows = Math.ceil(n / cols);
+    const cellW = Math.round((platform.width / cols) * scale);
+    const cellH = Math.round((platform.height / rows) * scale);
+    canvas.width = cellW * cols;
+    canvas.height = cellH * rows;
     ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, width, canvas.height);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     for (let i = 0; i < n; i++) {
-      const oy = i * cell;
+      const ox = (i % cols) * cellW;
+      const oy = Math.floor(i / cols) * cellH;
       const panelIdx = project.panels.indexOf(validPanels[i]);
-      if (imgs[i]) ctx.drawImage(imgs[i], 0, oy, cell, cell);
-      drawBubbles(ctx, project, panelIdx, 0, oy, cell);
+      if (imgs[i]) drawImageCover(ctx, imgs[i], ox, oy, cellW, cellH);
+      drawBubbles(ctx, project, panelIdx, ox, oy, cellW, cellH);
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(ox, oy, cellW, cellH);
+    }
+  } else {
+    // 条漫长图:竖排,3:4 竖格
+    const cellW = Math.round(platform.width * scale);
+    const cellH = Math.round((cellW * 4) / 3);
+    const n = validPanels.length;
+    canvas.width = cellW;
+    canvas.height = cellH * n;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, cellW, canvas.height);
+    for (let i = 0; i < n; i++) {
+      const oy = i * cellH;
+      const panelIdx = project.panels.indexOf(validPanels[i]);
+      if (imgs[i]) drawImageCover(ctx, imgs[i], 0, oy, cellW, cellH);
+      drawBubbles(ctx, project, panelIdx, 0, oy, cellW, cellH);
     }
   }
 

@@ -74,7 +74,14 @@ vertical_strip：输出 4-8 格，适当拉伸构图，竖向阅读流畅
 【emotion 字段枚举】平静 / 专注 / 惊讶 / 欣喜 / 温柔 / 难过 / 紧张 / 思考 / 释然 / 感动
 【camera 字段格式】景别 + 运镜 + 视角（三段，用中文点分隔）例："中近景·推镜·平角"
 【scene 字段格式】场景环境描述 + 【格子建议：大格/小格/横格/纵格/出血格/留白格】
-【内容安全】不含血腥、色情、仇恨、侵权商用内容；若有风险写入 risk_notes
+【内容安全·硬性红线】以下六类内容一律拒绝创作，status 输出 "blocked"，clarify_message 用一句温和的话说明并给出健康的改写方向（不复述敏感细节），expanded_plot 与 panels 留空：
+  ① 未成年人（或幼态外观、学生身份角色）的色情、裸露、性暗示——"外表幼态但设定成年"同样拒绝
+  ② 强迫、迷药、催眠、囚禁等非自愿性行为，或把胁迫关系浪漫化
+  ③ 真实人物（明星/网红/普通人）的色情化、羞辱或伪造
+  ④ 肢解、酷刑、虐杀等细节化血腥，对弱势者或动物的残忍虐待，自杀自残的方法细节
+  ⑤ 基于民族、种族、宗教、性别、残障等身份的贬损或煽动
+  ⑥ 可复现的犯罪操作步骤（武器/毒品制作、诈骗方法等）
+【内容安全·一般尺度】普通恋爱、接吻、拥抱正常创作；战斗冲突用非写实、不渲染痛苦细节的方式表现；其余轻度风险写入 risk_notes
 
 ━━━ 注意事项（贯穿两步）━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -133,7 +140,8 @@ export type PlotAndStoryboardInput = {
 
 export type PlotAndStoryboardResult =
   | { status: "ok"; storyTitle: string; expandedPlot: ExpandedPlot; panels: Panel[]; riskNotes: string[] }
-  | { status: "insufficient_input"; clarifyMessage: string };
+  | { status: "insufficient_input"; clarifyMessage: string }
+  | { status: "blocked"; reason: string; safeRewrite?: string };
 
 function buildUserPrompt(input: PlotAndStoryboardInput): string {
   return `请根据以下信息，完成剧情扩写与分镜拆解：
@@ -217,6 +225,10 @@ export async function runPlotAndStoryboard(
     const parsed = JSON.parse(stripCodeFence(raw));
     if (parsed.status === "insufficient_input") {
       return { status: "insufficient_input", clarifyMessage: parsed.clarify_message || "请补充更多故事细节" };
+    }
+    if (parsed.status === "blocked") {
+      // 生成中约束层:模型自身判定违禁
+      return { status: "blocked", reason: parsed.clarify_message || "内容未通过安全审核，请调整后重试" };
     }
     const panels: Panel[] = Array.isArray(parsed.panels)
       ? // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -47,6 +47,16 @@ export type ExpandedPlot = {
   riskNotes: string[];
 };
 
+// ── 气泡样式(用户可在气泡编辑页调整) ──────────────────────────
+export type BubbleShape = "oval" | "burst" | "box"; // 椭圆对话泡 | 爆炸泡 | 方形旁白框
+// 九宫格位置:1左上 2中上 3右上 4左中 5正中 6右中 7左下 8中下 9右下
+export type BubbleAnchor = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+export type BubbleStyle = {
+  shape: BubbleShape;
+  anchor: BubbleAnchor;
+  opacity: number; // 白底透明度 0.3~1
+};
+
 export type ImageSlot = {
   slot: 1 | 2 | 3 | 4;
   refType: "oc_character" | "style_reference" | "prop_reference";
@@ -62,6 +72,9 @@ export type Panel = {
   emotion: string;
   dialogue: string;
   caption: string;
+  // 气泡样式,缺省时用 lib/bubbles.ts 的默认值(旧项目数据兼容)
+  dialogueBubble?: BubbleStyle;
+  captionBubble?: BubbleStyle;
   visualPromptHint: string;
   // 生图落地阶段追加字段
   imageSlots?: ImageSlot[];

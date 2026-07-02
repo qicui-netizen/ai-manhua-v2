@@ -1,12 +1,27 @@
 import { NextResponse } from "next/server";
 import { runPlotAndStoryboard, offlinePlotAndStoryboard, type PlotAndStoryboardInput } from "@/lib/plotAndStoryboard";
 import { hasKey, PLOT_STORYBOARD_MODEL } from "@/lib/llm";
+import { moderateText } from "@/lib/moderation";
 
 export async function POST(req: Request) {
   const body = (await req.json()) as PlotAndStoryboardInput;
 
   if (!body.synopsis || body.synopsis.trim().length === 0) {
     return NextResponse.json({ status: "insufficient_input", clarifyMessage: "请先输入一句话故事梗概" }, { status: 400 });
+  }
+
+  // 输入侧防火墙:梗概+调整方向+角色设定先过审,违禁内容不触达生成模型
+  const moderationInput = [
+    body.synopsis,
+    body.adjustHint || "",
+    ...(body.characters || []).map((c) => `${c.name} ${c.canon}`),
+    body.lockedExpandedPlot?.plot || "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const mod = await moderateText(moderationInput);
+  if (mod.decision === "BLOCK") {
+    return NextResponse.json({ status: "blocked", reason: mod.reason, safeRewrite: mod.safeRewrite });
   }
 
   if (!hasKey(PLOT_STORYBOARD_MODEL)) {

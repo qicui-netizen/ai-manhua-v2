@@ -1,7 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { getProject, saveProject, getPlanClient, setPlanClient, spendQuota } from "@/lib/store";
+import { getProject, saveProject, loadProjects, getPlanClient, setPlanClient, spendQuota } from "@/lib/store";
 import { PLATFORMS, platformOf } from "@/lib/data";
 import { composeExport, downloadDataUrl } from "@/lib/exporter";
 import type { Project, TargetPlatform } from "@/lib/types";
@@ -12,6 +12,7 @@ function ExportPageInner() {
   const projectId = searchParams.get("project");
 
   const [project, setProject] = useState<Project | null | undefined>(undefined);
+  const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [platformId, setPlatformId] = useState<TargetPlatform>("xhs_vertical");
   const [isPaid, setIsPaid] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -19,14 +20,25 @@ function ExportPageInner() {
   const [resultUrl, setResultUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!projectId) {
-      setProject(null);
-      return;
+    const refresh = () => {
+      if (projectId) {
+        const p = getProject(projectId);
+        setProject(p || null);
+      } else {
+        // 无项目参数(从底部Tab进入):展示全部作品供选择,并显示导出记录
+        setProject(null);
+        setAllProjects(loadProjects());
+      }
+      setIsPaid(getPlanClient() === "member");
+    };
+    refresh();
+    if (projectId) {
+      const p = getProject(projectId);
+      if (p) setPlatformId(p.targetPlatform);
     }
-    const p = getProject(projectId);
-    setProject(p || null);
-    if (p) setPlatformId(p.targetPlatform);
-    setIsPaid(getPlanClient() === "member");
+    // 监听存储更新:后台一键重试补齐图片后,本页数据自动刷新,避免导出缺格旧数据
+    window.addEventListener("pf:update", refresh);
+    return () => window.removeEventListener("pf:update", refresh);
   }, [projectId]);
 
   const platform = platformOf(platformId);
@@ -59,12 +71,60 @@ function ExportPageInner() {
 
   if (project === undefined) return <div className="flex min-h-full items-center justify-center"><div className="pf-spinner" /></div>;
   if (project === null) {
+    // 从底部Tab直接进入:显示全部作品与导出记录,点击进入对应作品的导出
+    const withImages = allProjects.filter((p) => p.panels.some((pn) => pn.imageUrl));
+    const drafts = allProjects.filter((p) => !p.panels.some((pn) => pn.imageUrl));
+    if (allProjects.length === 0) {
+      return (
+        <div className="flex min-h-full flex-col items-center justify-center gap-3 px-8 text-center text-[var(--color-text-dim)]">
+          <div className="text-4xl">📤</div>
+          <p>还没有可导出的作品</p>
+          <button onClick={() => router.push("/create")} className="pf-btn pf-btn-secondary">
+            去创作一篇
+          </button>
+        </div>
+      );
+    }
     return (
-      <div className="flex min-h-full flex-col items-center justify-center gap-3 px-8 text-center text-[var(--color-text-dim)]">
-        <p>请先从工作台选择一个已生成的短篇</p>
-        <button onClick={() => router.push("/")} className="pf-btn pf-btn-secondary">
-          返回工作台
-        </button>
+      <div className="flex min-h-full flex-col pb-24">
+        <div className="px-5 pt-8 pb-3">
+          <h1 className="text-lg font-extrabold text-[var(--color-text)]">导出作品</h1>
+          <p className="mt-0.5 text-xs text-[var(--color-text-dim)]">选择一个作品进行导出，历史导出次数如下</p>
+        </div>
+        <div className="flex flex-col gap-2.5 px-5">
+          {withImages.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => router.push(`/export?project=${p.id}`)}
+              className="pf-card flex items-center gap-3 text-left"
+            >
+              <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-xl bg-[var(--color-surface-2)]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={p.panels.find((pn) => pn.imageUrl)!.imageUrl} alt="" className="h-full w-full object-cover" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-bold text-[var(--color-text)]">{p.title || "未命名短篇"}</p>
+                <p className="mt-0.5 text-[11px] text-[var(--color-text-dim)]">
+                  {p.panelCount} 格 · {new Date(p.createdAt).toLocaleDateString()}
+                </p>
+              </div>
+              <span
+                className="flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold"
+                style={{
+                  background: p.exports > 0 ? "rgba(16,185,129,0.15)" : "var(--color-primary-bg)",
+                  color: p.exports > 0 ? "var(--color-success)" : "var(--color-primary)",
+                }}
+              >
+                {p.exports > 0 ? `已导出 ${p.exports} 次` : "未导出"}
+              </span>
+            </button>
+          ))}
+          {drafts.length > 0 && (
+            <p className="mt-2 text-center text-[11px] text-[var(--color-text-dim)]">
+              另有 {drafts.length} 个作品尚未生成图片，生成后可导出
+            </p>
+          )}
+        </div>
       </div>
     );
   }

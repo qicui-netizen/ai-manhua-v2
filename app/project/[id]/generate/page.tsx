@@ -1,10 +1,12 @@
 "use client";
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getProject, saveProject, loadCharacters, spendQuota } from "@/lib/store";
 import { styleOf, platformOf } from "@/lib/data";
 import { persistRemoteImage } from "@/lib/persistImage";
-import type { Project, Character, Panel } from "@/lib/types";
+import { renderPanelWithBubbles } from "@/lib/exporter";
+import { DEFAULT_DIALOGUE_STYLE, DEFAULT_CAPTION_STYLE, SHAPE_LABELS } from "@/lib/bubbles";
+import type { Project, Character, Panel, BubbleStyle, BubbleAnchor, BubbleShape } from "@/lib/types";
 
 type Phase = "generating" | "review" | "bubble";
 
@@ -20,7 +22,7 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
   const [characters, setCharacters] = useState<Character[]>([]);
   const [phase, setPhase] = useState<Phase>("generating");
   const [genErrors, setGenErrors] = useState<Record<number, string>>({});
-  const [regenLoading, setRegenLoading] = useState<number | null>(null);
+  const [retryingFailed, setRetryingFailed] = useState(false);
   const [selectedPanelIdx, setSelectedPanelIdx] = useState(0);
 
   useEffect(() => {
@@ -108,7 +110,7 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
           /* 存储失败时保持内存态即可 */
         }
         setProject(failedProject);
-        setGenErrors({ [GLOBAL_ERROR_KEY]: "网络错误，生成失败，可逐格点击「重新生成」重试" });
+        setGenErrors({ [GLOBAL_ERROR_KEY]: "网络错误，生成失败，请点击下方「一键重新生成失败的格子」重试" });
         setPhase("review");
       } finally {
         inFlightProjects.delete(id);
@@ -118,21 +120,25 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, phase]);
 
-  async function regeneratePanel(panelIdx: number) {
-    // 全局互斥:并发重生成会基于旧快照互相覆盖,先完成的结果被后完成的丢掉
-    if (!project || regenLoading !== null) return;
-    setRegenLoading(panelIdx);
-    const panel = project.panels[panelIdx];
+  // 一键重新生成全部失败格:复用批量接口(服务端并发4路),不必一格一格点
+  async function regenerateFailedPanels() {
+    if (!project || retryingFailed) return;
+    // 跨挂载守卫:重试在途时离开再进入,不允许发起第二次(双倍扣额度、结果互相覆盖)
+    if (inFlightProjects.has(id)) return;
+    const failed = project.panels.filter((p) => p.status === "error");
+    if (failed.length === 0) return;
+    inFlightProjects.add(id);
+    setRetryingFailed(true);
     const projChars = characters.filter((c) => project.characterIds.includes(c.id));
     const style = styleOf(project.styleId);
     const platform = platformOf(project.targetPlatform);
     try {
-      const res = await fetch("/api/generate-panel", {
+      const res = await fetch("/api/generate-batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           storySummary: project.expandedPlot?.plot || project.synopsis,
-          panel,
+          panels: failed,
           characters: projChars,
           styleLabel: style.name,
           aspectRatio: platform.ratio,
@@ -140,30 +146,43 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
         }),
       });
       const data = await res.json();
-      if (data.status === "done" && data.imageUrl) {
-        const persisted = await persistRemoteImage(data.imageUrl);
-        // 函数式更新拿最新面板,避免闭包旧快照覆盖别的格
-        setProject((prev) => {
-          if (!prev) return prev;
-          const nextPanels = [...prev.panels];
-          nextPanels[panelIdx] = { ...nextPanels[panelIdx], status: "done", imageUrl: persisted };
-          const updated = { ...prev, panels: nextPanels };
-          try {
-            saveProject(updated);
-          } catch {
-            /* 存储超限时保持内存态 */
-          }
-          return updated;
-        });
-        setGenErrors((prev) => { const n = { ...prev }; delete n[panel.panelId]; return n; });
-        spendQuota(1);
-      } else {
-        setGenErrors((prev) => ({ ...prev, [panel.panelId]: data.notes || "生成失败" }));
+      const results: { panelId: number; status: "done" | "error"; imageUrl?: string; notes?: string }[] = data.results || [];
+
+      // 先转存成功格图片(临时URL过期问题),再合入状态
+      const persisted = new Map<number, string>();
+      for (const r of results) {
+        if (r.status === "done" && r.imageUrl) persisted.set(r.panelId, await persistRemoteImage(r.imageUrl));
       }
+      const doneCount = persisted.size;
+
+      // 落盘不放进 setState updater:重试期间用户离开页面时组件已卸载,
+      // updater 不会执行,结果会白白丢掉(额度却扣了)。基于最新落盘态合并后直接存。
+      const latest = getProject(id) || project;
+      const nextPanels = latest.panels.map((p) =>
+        persisted.has(p.panelId) ? { ...p, status: "done" as const, imageUrl: persisted.get(p.panelId)! } : p
+      );
+      const updated = { ...latest, panels: nextPanels };
+      try {
+        saveProject(updated);
+      } catch {
+        /* 存储超限时保持内存态 */
+      }
+      setProject(updated);
+      setGenErrors((prevErr) => {
+        const n = { ...prevErr };
+        delete n[GLOBAL_ERROR_KEY];
+        for (const r of results) {
+          if (r.status === "done") delete n[r.panelId];
+          else n[r.panelId] = r.notes || "生成失败";
+        }
+        return n;
+      });
+      if (doneCount > 0) spendQuota(doneCount);
     } catch {
-      setGenErrors((prev) => ({ ...prev, [panel.panelId]: "网络异常，请重试" }));
+      setGenErrors((prev) => ({ ...prev, [GLOBAL_ERROR_KEY]: "网络异常，重试失败，请稍后再试" }));
     } finally {
-      setRegenLoading(null);
+      inFlightProjects.delete(id);
+      setRetryingFailed(false);
     }
   }
 
@@ -171,6 +190,16 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
     if (!project) return;
     const next = [...project.panels];
     next[idx] = { ...next[idx], [field]: value };
+    const updated = { ...project, panels: next };
+    setProject(updated);
+    saveProject(updated);
+  }
+
+  function updateBubbleStyle(idx: number, field: "dialogueBubble" | "captionBubble", patch: Partial<BubbleStyle>) {
+    if (!project) return;
+    const next = [...project.panels];
+    const current = next[idx][field] || (field === "dialogueBubble" ? DEFAULT_DIALOGUE_STYLE : DEFAULT_CAPTION_STYLE);
+    next[idx] = { ...next[idx], [field]: { ...current, ...patch } };
     const updated = { ...project, panels: next };
     setProject(updated);
     saveProject(updated);
@@ -211,22 +240,27 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
       <div className="flex-1 px-5">
         {phase === "generating" && <GeneratingView panels={project.panels} />}
         {phase === "review" && (
-          <ReviewView project={project} genErrors={genErrors} regenLoading={regenLoading} onRegenerate={regeneratePanel} />
+          <ReviewView project={project} genErrors={genErrors} retrying={retryingFailed} onRetryFailed={regenerateFailedPanels} />
         )}
         {phase === "bubble" && (
           <BubbleEditorView
-            panels={project.panels}
+            project={project}
             selectedIdx={selectedPanelIdx}
             setSelectedIdx={setSelectedPanelIdx}
             onUpdate={updateBubble}
+            onUpdateStyle={updateBubbleStyle}
           />
         )}
       </div>
 
       {phase === "review" && (
         <div className="fixed bottom-0 left-0 right-0 mx-auto flex max-w-md gap-2.5 bg-gradient-to-t from-[var(--color-bg)] from-75% to-transparent px-5 pb-9 pt-3 sm:absolute">
-          <button onClick={() => router.push(`/export?project=${id}`)} className="pf-btn pf-btn-primary w-full">
-            导出稿件 →
+          <button
+            onClick={() => router.push(`/export?project=${id}`)}
+            disabled={retryingFailed}
+            className="pf-btn pf-btn-primary w-full"
+          >
+            {retryingFailed ? "重新生成中，请稍候…" : "导出稿件 →"}
           </button>
         </div>
       )}
@@ -272,15 +306,16 @@ function GeneratingView({ panels }: { panels: Panel[] }) {
 function ReviewView({
   project,
   genErrors,
-  regenLoading,
-  onRegenerate,
+  retrying,
+  onRetryFailed,
 }: {
   project: Project;
   genErrors: Record<number, string>;
-  regenLoading: number | null;
-  onRegenerate: (idx: number) => void;
+  retrying: boolean;
+  onRetryFailed: () => void;
 }) {
   const doneCount = project.panels.filter((p) => p.status === "done").length;
+  const failedCount = project.panels.filter((p) => p.status === "error").length;
   return (
     <div className="py-3">
       {genErrors[GLOBAL_ERROR_KEY] && (
@@ -288,15 +323,22 @@ function ReviewView({
           {genErrors[GLOBAL_ERROR_KEY]}
         </div>
       )}
-      <div className="mb-4 flex items-center gap-2.5 rounded-xl border border-[rgba(16,185,129,0.25)] bg-[rgba(16,185,129,0.1)] p-3">
+      <div className="mb-3 flex items-center gap-2.5 rounded-xl border border-[rgba(16,185,129,0.25)] bg-[rgba(16,185,129,0.1)] p-3">
         <span>✅</span>
         <div className="flex-1">
           <p className="text-[13px] font-bold text-[var(--color-success)]">
             成功 {doneCount} / {project.panels.length} 格
           </p>
-          <p className="mt-0.5 text-[11px] text-[var(--color-text-dim)]">点击失败格可重新生成</p>
+          {failedCount > 0 && (
+            <p className="mt-0.5 text-[11px] text-[var(--color-text-dim)]">有 {failedCount} 格未生成成功，可一键补齐</p>
+          )}
         </div>
       </div>
+      {failedCount > 0 && (
+        <button onClick={onRetryFailed} disabled={retrying} className="pf-btn pf-btn-primary mb-4 w-full">
+          {retrying ? `正在重新生成 ${failedCount} 格…` : `一键重新生成失败的 ${failedCount} 格`}
+        </button>
+      )}
 
       <div className="mb-4 grid grid-cols-2 gap-1.5 overflow-hidden rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
         {project.panels.map((p) => (
@@ -326,13 +368,7 @@ function ReviewView({
               <p className="text-[13px] font-semibold text-[var(--color-text)]">第 {idx + 1} 格</p>
               {genErrors[p.panelId] && <p className="truncate text-[11px] text-[var(--color-error)]">{genErrors[p.panelId]}</p>}
             </div>
-            <button
-              onClick={() => onRegenerate(idx)}
-              disabled={regenLoading !== null}
-              className="pf-btn pf-btn-secondary !min-h-8 !py-1.5 !px-3 text-xs"
-            >
-              {regenLoading === idx ? "生成中…" : "重新生成"}
-            </button>
+            {p.status === "error" && <span className="text-[11px] text-[var(--color-error)]">待重新生成</span>}
           </div>
         ))}
       </div>
@@ -341,17 +377,31 @@ function ReviewView({
 }
 
 function BubbleEditorView({
-  panels,
+  project,
   selectedIdx,
   setSelectedIdx,
   onUpdate,
+  onUpdateStyle,
 }: {
-  panels: Panel[];
+  project: Project;
   selectedIdx: number;
   setSelectedIdx: (i: number) => void;
   onUpdate: (idx: number, field: "dialogue" | "caption", value: string) => void;
+  onUpdateStyle: (idx: number, field: "dialogueBubble" | "captionBubble", patch: Partial<BubbleStyle>) => void;
 }) {
+  const panels = project.panels;
   const p = panels[selectedIdx];
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const renderSeq = useRef(0);
+
+  // 预览与导出共用同一套 canvas 渲染,改什么立刻看到什么。
+  // 渲染序号防竞态:快速切格时慢的旧渲染(图片解码慢)不允许覆盖新格子的画面
+  useEffect(() => {
+    if (!canvasRef.current || !p) return;
+    const seq = ++renderSeq.current;
+    renderPanelWithBubbles(canvasRef.current, project, selectedIdx, { isStale: () => renderSeq.current !== seq });
+  }, [project, selectedIdx, p]);
+
   if (!p) return null;
   return (
     <div className="py-3">
@@ -373,43 +423,108 @@ function BubbleEditorView({
         ))}
       </div>
 
-      <div className="relative mb-4 aspect-[3/4] overflow-hidden rounded-2xl bg-[var(--color-surface-2)] shadow-lg">
-        {p.imageUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={p.imageUrl} alt="" className="h-full w-full object-cover" />
-        )}
-        {p.dialogue && (
-          <div className="absolute bottom-5 left-4 right-4 rounded-2xl rounded-bl-md bg-white/95 px-3.5 py-2.5 text-[13px] font-semibold text-black shadow-lg">
-            {p.dialogue}
-          </div>
-        )}
-        {p.caption && (
-          <div className="absolute left-3 right-3 top-3 rounded-md bg-black/60 px-2.5 py-1.5 text-xs text-white">{p.caption}</div>
-        )}
-      </div>
+      <canvas ref={canvasRef} className="mb-4 h-auto w-full rounded-2xl bg-[var(--color-surface-2)] shadow-lg" />
 
       <div className="flex flex-col gap-2.5">
-        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3.5">
-          <p className="mb-2 text-[13px] font-bold text-[var(--color-text)]">对白（≤28字）</p>
-          <input
-            className="pf-input text-sm"
-            maxLength={28}
-            value={p.dialogue}
-            onChange={(e) => onUpdate(selectedIdx, "dialogue", e.target.value)}
-            placeholder="输入对白文字"
-          />
-        </div>
-        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3.5">
-          <p className="mb-2 text-[13px] font-bold text-[var(--color-text)]">旁白（≤35字）</p>
-          <input
-            className="pf-input text-sm"
-            maxLength={35}
-            value={p.caption}
-            onChange={(e) => onUpdate(selectedIdx, "caption", e.target.value)}
-            placeholder="旁白文字，留空则无"
-          />
-        </div>
+        <BubbleControls
+          title="对白（≤28字）"
+          placeholder="输入对白文字"
+          maxLength={28}
+          value={p.dialogue}
+          style={p.dialogueBubble || DEFAULT_DIALOGUE_STYLE}
+          onText={(v) => onUpdate(selectedIdx, "dialogue", v)}
+          onStyle={(patch) => onUpdateStyle(selectedIdx, "dialogueBubble", patch)}
+        />
+        <BubbleControls
+          title="旁白（≤35字）"
+          placeholder="旁白文字，留空则无"
+          maxLength={35}
+          value={p.caption}
+          style={p.captionBubble || DEFAULT_CAPTION_STYLE}
+          onText={(v) => onUpdate(selectedIdx, "caption", v)}
+          onStyle={(patch) => onUpdateStyle(selectedIdx, "captionBubble", patch)}
+        />
       </div>
+    </div>
+  );
+}
+
+const SHAPES: BubbleShape[] = ["oval", "burst", "box"];
+const ANCHORS: BubbleAnchor[] = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+function BubbleControls({
+  title,
+  placeholder,
+  maxLength,
+  value,
+  style,
+  onText,
+  onStyle,
+}: {
+  title: string;
+  placeholder: string;
+  maxLength: number;
+  value: string;
+  style: BubbleStyle;
+  onText: (v: string) => void;
+  onStyle: (patch: Partial<BubbleStyle>) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3.5">
+      <p className="mb-2 text-[13px] font-bold text-[var(--color-text)]">{title}</p>
+      <input
+        className="pf-input text-sm"
+        maxLength={maxLength}
+        value={value}
+        onChange={(e) => onText(e.target.value)}
+        placeholder={placeholder}
+      />
+      {value.trim() && (
+        <div className="mt-3 flex items-start gap-4">
+          <div className="flex-1">
+            <p className="mb-1.5 text-[11px] text-[var(--color-text-dim)]">气泡形状</p>
+            <div className="flex flex-wrap gap-1.5">
+              {SHAPES.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => onStyle({ shape: s })}
+                  className={`pf-chip !min-h-8 !px-3 !py-1 text-xs ${style.shape === s ? "active" : ""}`}
+                >
+                  {SHAPE_LABELS[s]}
+                </button>
+              ))}
+            </div>
+            <p className="mb-1.5 mt-3 text-[11px] text-[var(--color-text-dim)]">
+              底色透明度 {Math.round(style.opacity * 100)}%
+            </p>
+            <input
+              type="range"
+              min={30}
+              max={100}
+              value={Math.round(style.opacity * 100)}
+              onChange={(e) => onStyle({ opacity: Number(e.target.value) / 100 })}
+              className="w-full accent-[var(--color-primary)]"
+            />
+          </div>
+          <div>
+            <p className="mb-1.5 text-[11px] text-[var(--color-text-dim)]">位置</p>
+            <div className="grid grid-cols-3 gap-1">
+              {ANCHORS.map((a) => (
+                <button
+                  key={a}
+                  onClick={() => onStyle({ anchor: a })}
+                  aria-label={`位置${a}`}
+                  className="h-7 w-7 rounded-md border"
+                  style={{
+                    borderColor: style.anchor === a ? "var(--color-primary)" : "var(--color-border)",
+                    background: style.anchor === a ? "var(--color-primary)" : "var(--color-surface)",
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

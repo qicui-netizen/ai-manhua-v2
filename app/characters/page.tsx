@@ -2,13 +2,25 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { loadCharacters } from "@/lib/store";
+import { loadCharacters, deleteCharacter, loadProjects, saveCharacter } from "@/lib/store";
+import { CHARACTERS } from "@/lib/data";
+import LockTraitsEditor from "@/components/LockTraitsEditor";
 import type { Character } from "@/lib/types";
+
+// 种子角色(系统预设)不可删除,只有用户自建角色显示删除按钮
+const SEED_IDS = new Set(CHARACTERS.map((c) => c.id));
+
+// 角色被多少个项目引用:删除被引用的角色会导致这些项目无法重新生成,确认文案要说清
+function usedByProjects(charId: string): number {
+  return loadProjects().filter((p) => p.characterIds.includes(charId)).length;
+}
 
 export default function CharacterLibraryPage() {
   const router = useRouter();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
     const refresh = () => {
@@ -44,7 +56,10 @@ export default function CharacterLibraryPage() {
           {characters.map((c) => (
             <div
               key={c.id}
-              onClick={() => setSelected(c.id)}
+              onClick={() => {
+                setSelected(c.id);
+                setDeletingId(null); // 点卡片任意区域退出"确认删除"状态,防误删
+              }}
               className="pf-card cursor-pointer"
               style={{ borderColor: selected === c.id ? "rgba(124,58,237,0.5)" : undefined }}
             >
@@ -89,7 +104,50 @@ export default function CharacterLibraryPage() {
                     已选
                   </span>
                 )}
+                {!SEED_IDS.has(c.id) && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (deletingId === c.id) {
+                        deleteCharacter(c.id);
+                        setDeletingId(null);
+                        setSelected((prev) => (prev === c.id ? null : prev));
+                      } else {
+                        setDeletingId(c.id);
+                      }
+                    }}
+                    className="flex-shrink-0 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold"
+                    style={{
+                      borderColor: deletingId === c.id ? "var(--color-error)" : "var(--color-border)",
+                      background: deletingId === c.id ? "rgba(239,68,68,0.15)" : "transparent",
+                      color: deletingId === c.id ? "var(--color-error)" : "var(--color-text-dim)",
+                    }}
+                  >
+                    {deletingId === c.id
+                      ? usedByProjects(c.id) > 0
+                        ? `${usedByProjects(c.id)}个作品在用,确认删?`
+                        : "确认删除?"
+                      : "删除"}
+                  </button>
+                )}
               </div>
+              {selected === c.id && (
+                <div className="mt-3 border-t border-[var(--color-border)] pt-3" onClick={(e) => e.stopPropagation()}>
+                  <p className="mb-2 text-xs font-semibold text-[var(--color-text-sub)]">特征锁定（可随时调整，下次生成生效）</p>
+                  <LockTraitsEditor
+                    value={c.lockedTraits}
+                    onChange={(v) => {
+                      try {
+                        saveCharacter({ ...c, lockedTraits: v });
+                        setSaveError("");
+                      } catch {
+                        setSaveError("保存失败：本地存储空间不足，请删除部分角色参考图后重试");
+                      }
+                    }}
+                  />
+                  {saveError && <p className="mt-2 text-xs text-[var(--color-error)]">{saveError}</p>}
+                </div>
+              )}
             </div>
           ))}
 
