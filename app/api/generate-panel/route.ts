@@ -14,7 +14,7 @@ type GeneratePanelBody = {
   layoutTemplate: string;
 };
 
-// 单格重抽,对应楠demo generate.js 的"重新生成"按钮。
+// 单格重抽,对应"重新生成"按钮。
 export async function POST(req: Request) {
   const body = (await req.json()) as GeneratePanelBody;
   const { storySummary, panel, characters, styleLabel, styleReferenceImageKey, aspectRatio, layoutTemplate } = body;
