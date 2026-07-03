@@ -12,14 +12,16 @@ type GeneratePanelBody = {
   styleReferenceImageKey?: string;
   aspectRatio: string;
   layoutTemplate: string;
+  adjustHint?: string; // 用户对上一次成图的修正要求(可选,≤50字)
 };
 
 // 单格重抽,对应"重新生成"按钮。
 export async function POST(req: Request) {
   const body = (await req.json()) as GeneratePanelBody;
   const { storySummary, panel, characters, styleLabel, styleReferenceImageKey, aspectRatio, layoutTemplate } = body;
+  const adjustHint = (body.adjustHint || "").trim().slice(0, 50);
 
-  const promptInput = { storySummary, panel, characters, styleLabel, styleReferenceImageKey, aspectRatio, layoutTemplate };
+  const promptInput = { storySummary, panel, characters, styleLabel, styleReferenceImageKey, aspectRatio, layoutTemplate, adjustHint };
   const hasLLM = hasKey(IMAGE_EDIT_PROMPT_MODEL);
   const editResult = hasLLM
     ? (await runImageEditPrompt(promptInput)) || offlineImageEditPrompt(promptInput)

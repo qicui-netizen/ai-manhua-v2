@@ -23,6 +23,7 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
   const [phase, setPhase] = useState<Phase>("generating");
   const [genErrors, setGenErrors] = useState<Record<number, string>>({});
   const [retryingFailed, setRetryingFailed] = useState(false);
+  const [rerollingId, setRerollingId] = useState<number | null>(null);
   const [selectedPanelIdx, setSelectedPanelIdx] = useState(0);
 
   useEffect(() => {
@@ -186,6 +187,66 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
     }
   }
 
+  // 单格重抽:成功但不满意的格子重新生成,可附一句修正提示。成功才扣 1 格额度,失败保留原图。
+  async function rerollPanel(panelId: number, hint: string) {
+    if (!project || retryingFailed || rerollingId !== null) return;
+    const latest = getProject(id) || project;
+    const target = latest.panels.find((p) => p.panelId === panelId);
+    if (!target) return;
+    setRerollingId(panelId);
+    const projChars = characters.filter((c) => latest.characterIds.includes(c.id));
+    const style = styleOf(latest.styleId);
+    const platform = platformOf(latest.targetPlatform);
+    // 与批量接口同一套角色筛选口径(按动作文本点名);全都没点名时兜底传全部,不让重抽死于筛选
+    const inPanel = projChars.length === 1 ? projChars : projChars.filter((c) => target.characterAction.includes(c.name));
+    const charsForApi = inPanel.length > 0 ? inPanel : projChars;
+    const trimmed = hint.trim().slice(0, 50);
+    try {
+      const res = await fetch("/api/generate-panel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storySummary: latest.expandedPlot?.plot || latest.synopsis,
+          panel: target,
+          characters: charsForApi,
+          styleLabel: style.name,
+          aspectRatio: platform.ratio,
+          layoutTemplate: latest.templateType === "4_panel" ? "4格" : latest.templateType === "9_panel" ? "9格" : "条漫",
+          // 修正要求作为一等字段传递(不拼进 visualPromptHint,防离线兜底 slice 截断丢失)
+          adjustHint: trimmed,
+        }),
+      });
+      const r = await res.json();
+      if (r.status !== "done" || !r.imageUrl) {
+        setGenErrors((prev) => ({ ...prev, [panelId]: `重抽失败:${r.notes || "生成失败"}(原图已保留)` }));
+        return;
+      }
+      // 生成图是临时签名URL,立即转存;基于最新落盘态合并,防止在途期间的其他改动被覆盖
+      const persistedUrl = await persistRemoteImage(r.imageUrl);
+      const base = getProject(id) || latest;
+      const nextPanels = base.panels.map((p) =>
+        p.panelId === panelId ? { ...p, status: "done" as const, imageUrl: persistedUrl } : p
+      );
+      const updated = { ...base, panels: nextPanels };
+      try {
+        saveProject(updated);
+      } catch {
+        /* 存储超限时保持内存态 */
+      }
+      setProject(updated);
+      setGenErrors((prev) => {
+        const n = { ...prev };
+        delete n[panelId];
+        return n;
+      });
+      spendQuota(1);
+    } catch {
+      setGenErrors((prev) => ({ ...prev, [panelId]: "网络异常，重抽失败(原图已保留)" }));
+    } finally {
+      setRerollingId(null);
+    }
+  }
+
   function updateBubble(idx: number, field: "dialogue" | "caption", value: string) {
     if (!project) return;
     const next = [...project.panels];
@@ -240,7 +301,14 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
       <div className="flex-1 px-5">
         {phase === "generating" && <GeneratingView panels={project.panels} />}
         {phase === "review" && (
-          <ReviewView project={project} genErrors={genErrors} retrying={retryingFailed} onRetryFailed={regenerateFailedPanels} />
+          <ReviewView
+            project={project}
+            genErrors={genErrors}
+            retrying={retryingFailed}
+            onRetryFailed={regenerateFailedPanels}
+            rerollingId={rerollingId}
+            onReroll={rerollPanel}
+          />
         )}
         {phase === "bubble" && (
           <BubbleEditorView
@@ -257,10 +325,10 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
         <div className="fixed bottom-0 left-0 right-0 mx-auto flex max-w-md gap-2.5 bg-gradient-to-t from-[var(--color-bg)] from-75% to-transparent px-5 pb-9 pt-3 sm:absolute">
           <button
             onClick={() => router.push(`/export?project=${id}`)}
-            disabled={retryingFailed}
+            disabled={retryingFailed || rerollingId !== null}
             className="pf-btn pf-btn-primary w-full"
           >
-            {retryingFailed ? "重新生成中，请稍候…" : "导出稿件 →"}
+            {retryingFailed ? "重新生成中，请稍候…" : rerollingId !== null ? "重抽中，请稍候…" : "导出稿件 →"}
           </button>
         </div>
       )}
@@ -308,14 +376,22 @@ function ReviewView({
   genErrors,
   retrying,
   onRetryFailed,
+  rerollingId,
+  onReroll,
 }: {
   project: Project;
   genErrors: Record<number, string>;
   retrying: boolean;
   onRetryFailed: () => void;
+  rerollingId: number | null;
+  onReroll: (panelId: number, hint: string) => void;
 }) {
   const doneCount = project.panels.filter((p) => p.status === "done").length;
   const failedCount = project.panels.filter((p) => p.status === "error").length;
+  // 展开修正提示输入的格子(一次只展开一格,输入随展开切换重置)
+  const [rerollTarget, setRerollTarget] = useState<number | null>(null);
+  const [rerollHint, setRerollHint] = useState("");
+  const busy = retrying || rerollingId !== null;
   return (
     <div className="py-3">
       {genErrors[GLOBAL_ERROR_KEY] && (
@@ -349,26 +425,67 @@ function ReviewView({
             ) : (
               <span className="text-2xl">❌</span>
             )}
+            {rerollingId === p.panelId && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/55">
+                <div className="pf-spinner" />
+              </div>
+            )}
           </div>
         ))}
       </div>
 
       <div className="flex flex-col gap-2">
         {project.panels.map((p, idx) => (
-          <div key={p.panelId} className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
-            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--color-surface)]">
-              {p.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={p.imageUrl} alt="" className="h-full w-full object-cover" />
-              ) : (
-                "❌"
+          <div key={p.panelId} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--color-surface)]">
+                {p.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.imageUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  "❌"
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-semibold text-[var(--color-text)]">第 {idx + 1} 格</p>
+                {genErrors[p.panelId] && <p className="truncate text-[11px] text-[var(--color-error)]">{genErrors[p.panelId]}</p>}
+              </div>
+              {p.status === "error" && <span className="text-[11px] text-[var(--color-error)]">待重新生成</span>}
+              {p.status === "done" && (
+                <button
+                  onClick={() => {
+                    setRerollTarget(rerollTarget === p.panelId ? null : p.panelId);
+                    setRerollHint("");
+                  }}
+                  disabled={busy}
+                  className="pf-btn pf-btn-secondary !min-h-8 flex-shrink-0 !px-3 !py-1.5 text-xs"
+                >
+                  {rerollingId === p.panelId ? "重抽中…" : "🎲 重抽"}
+                </button>
               )}
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-semibold text-[var(--color-text)]">第 {idx + 1} 格</p>
-              {genErrors[p.panelId] && <p className="truncate text-[11px] text-[var(--color-error)]">{genErrors[p.panelId]}</p>}
-            </div>
-            {p.status === "error" && <span className="text-[11px] text-[var(--color-error)]">待重新生成</span>}
+            {/* 不满意的成功格:展开修正提示输入,重抽消耗 1 格额度 */}
+            {rerollTarget === p.panelId && p.status === "done" && (
+              <div className="mt-2.5 flex gap-2">
+                <input
+                  className="pf-input flex-1 !py-2 text-[13px]"
+                  maxLength={50}
+                  placeholder="可选：想改哪里？如「表情改成微笑」"
+                  value={rerollHint}
+                  onChange={(e) => setRerollHint(e.target.value)}
+                />
+                <button
+                  onClick={() => {
+                    setRerollTarget(null);
+                    onReroll(p.panelId, rerollHint);
+                  }}
+                  disabled={busy}
+                  className="pf-btn pf-btn-primary !min-h-9 flex-shrink-0 !px-3.5 !py-2 text-xs"
+                >
+                  重抽(耗1格额度)
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>

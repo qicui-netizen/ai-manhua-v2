@@ -15,6 +15,14 @@ export type GenerateImageInput = {
   seed?: number;
 };
 
+// ⚠️ 出图比例的已验证事实(2026-07-02 实测 + 官方文档,不要盲目重加 image_size):
+// - image_size 参数对 Qwen-Image-Edit-2509 不支持(docs.siliconflow.cn 原文
+//   "Qwen/Qwen-Image-Edit-2509 and Qwen-Image-Edit not support this field"),传了会被静默忽略;
+// - 出图比例跟随输入参考图比例(512x512 入→1024x1024 出;768x1024 入→880x1176 出);
+// - 把参考图垫白边成目标比例不可行:实测边框会被当作画面内容复刻进成图。
+// 当前缓解:生图指令 Agent 在 editPrompt 里追加构图安全区约束(见 imageEditPrompt 规则10),
+// 让居中裁剪不切人。结构性解法(支持尺寸的模型/出图后外扩)列入路线图。
+
 export type GenerateImageResult = { url?: string; seed?: number; error?: string };
 
 export async function generateImage(input: GenerateImageInput): Promise<GenerateImageResult> {
