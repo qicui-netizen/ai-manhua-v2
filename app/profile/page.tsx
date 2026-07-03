@@ -9,9 +9,13 @@ import {
   deleteProject,
   getUserProfile,
   saveUserProfile,
+  getSession,
+  clearSession,
+  maskAccount,
   FREE_MONTHLY_QUOTA,
   type Plan,
   type UserProfile,
+  type AuthSession,
 } from "@/lib/store";
 import type { Project } from "@/lib/types";
 
@@ -55,6 +59,8 @@ export default function ProfilePage() {
   const [user, setUser] = useState<UserProfile>({ name: "漫画创作者", avatar: "" });
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -63,6 +69,7 @@ export default function ProfilePage() {
       setQuota(getQuota());
       setPlan(getPlanClient());
       setUser(getUserProfile());
+      setSession(getSession());
     };
     refresh();
     window.addEventListener("pf:update", refresh);
@@ -157,8 +164,22 @@ export default function ProfilePage() {
                 </svg>
               </button>
             )}
-            <p className="mt-0.5 text-[11px] text-[var(--color-text-dim)]">点击头像或昵称即可修改</p>
+            {session ? (
+              <p className="mt-0.5 text-[11px] text-[var(--color-text-dim)]">
+                {session.method === "phone" ? "📱" : "✉️"} {maskAccount(session)} · 点击头像或昵称可修改
+              </p>
+            ) : (
+              <p className="mt-0.5 text-[11px] text-[var(--color-text-dim)]">点击头像或昵称即可修改</p>
+            )}
           </div>
+          {!session && (
+            <button
+              onClick={() => router.push("/login")}
+              className="pf-btn pf-btn-primary !min-h-9 flex-shrink-0 !px-4 !py-2 text-sm"
+            >
+              登录
+            </button>
+          )}
         </div>
 
         {/* 套餐卡 */}
@@ -268,6 +289,35 @@ export default function ProfilePage() {
             ))}
           </div>
         )}
+
+        {/* 退出登录:两步确认,只清会话不动本地作品/角色数据 */}
+        {session && (
+          <button
+            onClick={() => {
+              if (confirmingLogout) {
+                clearSession();
+                setConfirmingLogout(false);
+              } else {
+                setConfirmingLogout(true);
+              }
+            }}
+            className="mt-6 w-full rounded-xl border py-3 text-sm font-semibold transition-colors"
+            style={{
+              borderColor: confirmingLogout ? "var(--color-error)" : "var(--color-border)",
+              background: confirmingLogout ? "rgba(239,68,68,0.15)" : "var(--color-surface)",
+              color: confirmingLogout ? "var(--color-error)" : "var(--color-text-sub)",
+            }}
+          >
+            {confirmingLogout ? "确认退出登录?(本地作品不会丢失)" : "退出登录"}
+          </button>
+        )}
+
+        {/* 协议入口 */}
+        <div className="mt-6 flex items-center justify-center gap-1.5 text-[11px] text-[var(--color-text-dim)]">
+          <button onClick={() => router.push("/terms")}>用户协议</button>
+          <span>·</span>
+          <button onClick={() => router.push("/privacy")}>隐私政策</button>
+        </div>
       </div>
     </div>
   );

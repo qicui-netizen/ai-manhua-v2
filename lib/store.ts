@@ -143,6 +143,35 @@ export function saveUserProfile(p: UserProfile) {
   window.dispatchEvent(new Event("pf:update"));
 }
 
+// ── 登录会话(演示版:验证码本机模拟,未接真实短信/邮件服务) ──
+// 接入真实服务时:发码与校验移到服务端 API,本文件只存服务端签发的会话凭证。
+const AUTHKEY = "pf_auth_v1";
+export type AuthMethod = "phone" | "email";
+export type AuthSession = { account: string; method: AuthMethod; loginAt: number };
+export function getSession(): AuthSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = JSON.parse(localStorage.getItem(AUTHKEY) || "null");
+    return raw && raw.account && raw.method ? raw : null;
+  } catch {
+    return null;
+  }
+}
+export function saveSession(s: AuthSession) {
+  localStorage.setItem(AUTHKEY, JSON.stringify(s));
+  window.dispatchEvent(new Event("pf:update"));
+}
+export function clearSession() {
+  localStorage.removeItem(AUTHKEY);
+  window.dispatchEvent(new Event("pf:update"));
+}
+// 账号打码展示:手机 138****5678,邮箱 a***@xx.com
+export function maskAccount(s: AuthSession): string {
+  if (s.method === "phone") return s.account.replace(/^(\d{3})\d{4}(\d{4})$/, "$1****$2");
+  const at = s.account.indexOf("@");
+  return `${s.account.slice(0, 1)}***${s.account.slice(at)}`;
+}
+
 // ── 套餐(演示付费墙,未接入真实支付) ──
 const PLANKEY = "pf_plan_v2";
 export type Plan = "free" | "member";
