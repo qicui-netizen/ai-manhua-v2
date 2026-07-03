@@ -23,7 +23,7 @@ npm install
 
 ### 2. 配置 API Key
 
-本项目使用 [硅基流动 SiliconFlow](https://cloud.siliconflow.cn) 的模型服务（剧情：DeepSeek-V3；生图：Qwen-Image-Edit；识图：Qwen3-VL）。注册后在控制台创建 API Key，然后：
+本项目默认使用 [硅基流动 SiliconFlow](https://cloud.siliconflow.cn) 的模型服务（剧情：DeepSeek-V3；生图：Qwen-Image-Edit；识图：Qwen3-VL）。注册后在控制台创建 API Key，然后：
 
 ```bash
 cp .env.example .env.local
@@ -36,7 +36,14 @@ SILICONFLOW_API_KEY=你的API密钥
 ```
 
 > ⚠️ `.env.local` 已被 `.gitignore` 忽略，请勿将真实 Key 提交到任何公开仓库。
-> 💰 参考成本：完整生成一部 4 格漫画约 0.3–0.5 元人民币。
+> 💰 参考成本：完整生成一部 4 格漫画约 0.3–0.5 元人民币（硅基流动）/ 约 1–1.2 元（方舟 Seedream）。
+
+**可选：切换生图模型为火山方舟 Doubao-Seedream-4.5**（角色一致性更强、原生支持 3:4/1:1 出图比例，单格约 0.25 元）：在 [方舟控制台](https://console.volcengine.com/ark) 开通 Seedream 模型并创建 API Key（注意给 Key 授权该模型），然后在 `.env.local` 追加：
+
+```
+IMAGE_PROVIDER=ark
+ARK_API_KEY=你的方舟密钥
+```
 
 ### 3. 启动
 
@@ -56,6 +63,10 @@ npm run dev
 | `IMAGE_EDIT_PROMPT_MODEL` | | `deepseek-ai/DeepSeek-V3` | 生图指令模型 |
 | `IMAGE_EDIT_MODEL` | | `Qwen/Qwen-Image-Edit-2509` | 图像编辑生成模型 |
 | `MODERATION_VL_MODEL` | | `Qwen/Qwen3-VL-8B-Instruct` | 参考图识别模型 |
+| `IMAGE_PROVIDER` | | `siliconflow` | 生图供应商：`siliconflow` / `ark`(方舟 Seedream) |
+| `ARK_API_KEY` | ark 时必填 | — | 火山方舟 API Key（需已授权 Seedream 模型） |
+| `ARK_BASE_URL` | | `https://ark.cn-beijing.volces.com/api/v3` | 方舟 API 地址 |
+| `ARK_IMAGE_MODEL` | | `doubao-seedream-4-5-251128` | 方舟生图模型 ID |
 
 ## 📁 项目结构
 

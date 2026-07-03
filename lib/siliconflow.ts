@@ -13,6 +13,9 @@ export type GenerateImageInput = {
   negativePrompt?: string;
   images: string[]; // data URL 或可访问 URL,最多 4 张,按顺序映射 image/image2/image3/image4
   seed?: number;
+  // 目标平台比例("3:4"/"1:1"/"竖向长图")。硅基流动路径忽略(见下方已验证事实),
+  // 方舟 Seedream 路径用它映射原生出图尺寸(lib/ark.ts)
+  aspectRatio?: string;
 };
 
 // ⚠️ 出图比例的已验证事实(2026-07-02 实测 + 官方文档,不要盲目重加 image_size):
@@ -69,22 +72,7 @@ export async function generateImage(input: GenerateImageInput): Promise<Generate
   }
 }
 
-// 带 1 次重试的单格生成(对齐 PRD "失败自动重试1次,不扣额度" 的设计精神,
-// 这里简化为 HTTP/超时失败重试,不做 ArcFace 一致性检测,该能力列为 P1)。
-export async function generateImageWithRetry(
-  input: GenerateImageInput,
-  maxRetries = 1
-): Promise<GenerateImageResult> {
-  let last: GenerateImageResult = { error: "生成失败(已重试)" };
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const result = await generateImage(input);
-    if (result.url) return result;
-    last = result;
-    // 余额不足/缺key这类确定性错误,重试也不会成功
-    if (result.error?.includes("余额不足") || result.error?.includes("API_KEY")) break;
-  }
-  return last;
-}
+// 带重试的调用入口已上移到 lib/imageProvider.ts(供应商切换层),本文件只保留硅基流动的裸实现。
 
 // 把参考图 URL 统一解析成硅基流动接口可用的形式:
 // - data: URL(用户上传照片,浏览器 FileReader 转的 base64)-> 原样透传

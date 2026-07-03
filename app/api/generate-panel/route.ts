@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runImageEditPrompt, offlineImageEditPrompt } from "@/lib/imageEditPrompt";
-import { generateImageWithRetry, resolveImageUrl } from "@/lib/siliconflow";
+import { resolveImageUrl } from "@/lib/siliconflow";
+import { generateImageWithRetry } from "@/lib/imageProvider";
 import { hasKey, IMAGE_EDIT_PROMPT_MODEL } from "@/lib/llm";
 import { rateLimit } from "@/lib/apiGuard";
 import type { Panel, Character } from "@/lib/types";
@@ -54,7 +55,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const gen = await generateImageWithRetry({ editPrompt: editResult.editPrompt, negativePrompt: editResult.negativePrompt, images });
+  const gen = await generateImageWithRetry({ editPrompt: editResult.editPrompt, negativePrompt: editResult.negativePrompt, images, aspectRatio });
   if (!gen.url) return NextResponse.json({ panelId: panel.panelId, status: "error", notes: gen.error || "生成失败(已重试)" });
   return NextResponse.json({ panelId: panel.panelId, status: "done", imageUrl: gen.url, editPrompt: editResult.editPrompt });
 }

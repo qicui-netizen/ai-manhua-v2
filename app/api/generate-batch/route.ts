@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runImageEditPrompt, offlineImageEditPrompt } from "@/lib/imageEditPrompt";
-import { generateImageWithRetry, mapWithConcurrencyLimit, resolveImageUrl } from "@/lib/siliconflow";
+import { mapWithConcurrencyLimit, resolveImageUrl } from "@/lib/siliconflow";
+import { generateImageWithRetry } from "@/lib/imageProvider";
 import { hasKey, IMAGE_EDIT_PROMPT_MODEL } from "@/lib/llm";
 import { rateLimit, MAX_PANELS_PER_BATCH } from "@/lib/apiGuard";
 import type { Panel, Character } from "@/lib/types";
@@ -89,6 +90,7 @@ export async function POST(req: Request) {
       editPrompt: editResult.editPrompt,
       negativePrompt: editResult.negativePrompt,
       images,
+      aspectRatio,
     });
     if (!gen.url) return { panelId: panel.panelId, status: "error" as const, notes: gen.error || "生成失败(已重试)" };
     return { panelId: panel.panelId, status: "done" as const, imageUrl: gen.url, editPrompt: editResult.editPrompt };
