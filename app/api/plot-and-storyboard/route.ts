@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { runPlotAndStoryboard, offlinePlotAndStoryboard, type PlotAndStoryboardInput } from "@/lib/plotAndStoryboard";
 import { hasKey, PLOT_STORYBOARD_MODEL } from "@/lib/llm";
 import { moderateText } from "@/lib/moderation";
+import { rateLimit } from "@/lib/apiGuard";
 
 export async function POST(req: Request) {
+  const limited = rateLimit(req, "llm", 1);
+  if (limited) return NextResponse.json({ status: "error", clarifyMessage: limited }, { status: 429 });
+
   const body = (await req.json()) as PlotAndStoryboardInput;
 
   if (!body.synopsis || body.synopsis.trim().length === 0) {

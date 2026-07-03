@@ -190,9 +190,13 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
   // 单格重抽:成功但不满意的格子重新生成,可附一句修正提示。成功才扣 1 格额度,失败保留原图。
   async function rerollPanel(panelId: number, hint: string) {
     if (!project || retryingFailed || rerollingId !== null) return;
+    // 跨挂载守卫:重抽在途时离开再进入,组件态 rerollingId 已丢失,
+    // 必须靠模块级集合阻止对同一项目并发二次重抽(双倍扣额度、结果互相覆盖)
+    if (inFlightProjects.has(id)) return;
     const latest = getProject(id) || project;
     const target = latest.panels.find((p) => p.panelId === panelId);
     if (!target) return;
+    inFlightProjects.add(id);
     setRerollingId(panelId);
     const projChars = characters.filter((c) => latest.characterIds.includes(c.id));
     const style = styleOf(latest.styleId);
@@ -228,21 +232,27 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
         p.panelId === panelId ? { ...p, status: "done" as const, imageUrl: persistedUrl } : p
       );
       const updated = { ...base, panels: nextPanels };
+      // 扣额度放在 setProject 之前:spendQuota 会广播 pf:update,refresh 监听器
+      // 用磁盘态 setProject——若 saveProject 因写满失败,磁盘旧态会覆盖内存新图。
+      // 先扣、后落盘、最后 setProject(updated),保证最终内存态永远是新结果。
+      spendQuota(1);
+      let storageFull = false;
       try {
         saveProject(updated);
       } catch {
-        /* 存储超限时保持内存态 */
+        storageFull = true;
       }
       setProject(updated);
       setGenErrors((prev) => {
         const n = { ...prev };
         delete n[panelId];
+        if (storageFull) n[GLOBAL_ERROR_KEY] = "本地存储空间不足，重抽的新图可能无法长期保存，请尽快导出";
         return n;
       });
-      spendQuota(1);
     } catch {
       setGenErrors((prev) => ({ ...prev, [panelId]: "网络异常，重抽失败(原图已保留)" }));
     } finally {
+      inFlightProjects.delete(id);
       setRerollingId(null);
     }
   }

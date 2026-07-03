@@ -110,7 +110,8 @@ function drawBubbles(
     const { shape, anchor, opacity } = b.style;
     const fs = Math.round(base * (b.type === "caption" ? 0.042 : 0.046));
     const lh = fs * 1.45;
-    ctx.font = `600 ${fs}px "PingFang SC", system-ui, sans-serif`;
+    // 字体栈带安卓回退:安卓无 PingFang SC,缺回退会退到衬线默认体,跨端气泡观感不一致
+    ctx.font = `600 ${fs}px "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif`;
 
     const maxTextW = cellW * (shape === "burst" ? 0.42 : shape === "oval" ? 0.5 : 0.72);
     const lines = wrapLines(ctx, b.text, maxTextW);
@@ -186,6 +187,32 @@ function drawBubbles(
   }
 }
 
+// 「AI 生成」显式标识:全档位强制,与免费版营销水印解耦、付费不可去除。
+// 依据《人工智能生成合成内容标识办法》(2025-09-01 生效),提供者义务不可约定转移;
+// 元数据隐式标识(EXIF)需引库,列入路线图,先落显式角标。
+function aiBadge(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  const base = Math.min(w, h);
+  const fs = Math.max(14, Math.round(base * 0.024));
+  const text = "AI 生成";
+  ctx.save();
+  ctx.font = `600 ${fs}px "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif`;
+  const padX = fs * 0.7;
+  const bw = ctx.measureText(text).width + padX * 2;
+  const bh = fs * 1.8;
+  const margin = fs * 0.8;
+  const x = w - bw - margin;
+  const y = h - bh - margin;
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  roundRect(ctx, x, y, bw, bh, bh / 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, x + bw / 2, y + bh / 2 + fs * 0.05);
+  ctx.restore();
+  ctx.textAlign = "left";
+}
+
 function watermark(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.save();
   ctx.globalAlpha = 0.12;
@@ -238,7 +265,9 @@ export async function composeExport(
 ): Promise<string> {
   const validPanels = project.panels.filter((p) => p.imageUrl);
   const imgs = await Promise.all(validPanels.map((p) => loadImage(p.imageUrl!)));
-  const scale = opts.hd ? 1 : 0.5;
+  // 免费档 0.75:0.5 时每格仅 270×360,发平台再被二压后不可用,劣化只伤害诚实用户
+  // (评审摩擦点⑧裁决)。免费/会员的档位差保留在水印与 1x 高清上。
+  const scale = opts.hd ? 1 : 0.75;
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d")!;
 
@@ -300,6 +329,8 @@ export async function composeExport(
   }
 
   if (opts.watermark) watermark(ctx, canvas.width, canvas.height);
+  // AI 生成显式标识:全档位强制加盖,不随会员/水印开关变化(提供者法定义务)
+  aiBadge(ctx, canvas.width, canvas.height);
   return canvas.toDataURL("image/png");
 }
 

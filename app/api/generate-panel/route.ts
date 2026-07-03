@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { runImageEditPrompt, offlineImageEditPrompt } from "@/lib/imageEditPrompt";
 import { generateImageWithRetry, resolveImageUrl } from "@/lib/siliconflow";
 import { hasKey, IMAGE_EDIT_PROMPT_MODEL } from "@/lib/llm";
+import { rateLimit } from "@/lib/apiGuard";
 import type { Panel, Character } from "@/lib/types";
 
 type GeneratePanelBody = {
@@ -17,6 +18,10 @@ type GeneratePanelBody = {
 
 // 单格重抽,对应"重新生成"按钮。
 export async function POST(req: Request) {
+  const limited = rateLimit(req, "image", 1);
+  if (limited) {
+    return NextResponse.json({ status: "error", notes: limited }, { status: 429 });
+  }
   const body = (await req.json()) as GeneratePanelBody;
   const { storySummary, panel, characters, styleLabel, styleReferenceImageKey, aspectRatio, layoutTemplate } = body;
   const adjustHint = (body.adjustHint || "").trim().slice(0, 50);

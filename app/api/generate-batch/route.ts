@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { runImageEditPrompt, offlineImageEditPrompt } from "@/lib/imageEditPrompt";
 import { generateImageWithRetry, mapWithConcurrencyLimit, resolveImageUrl } from "@/lib/siliconflow";
 import { hasKey, IMAGE_EDIT_PROMPT_MODEL } from "@/lib/llm";
+import { rateLimit, MAX_PANELS_PER_BATCH } from "@/lib/apiGuard";
 import type { Panel, Character } from "@/lib/types";
 
 type GenerateBatchBody = {
@@ -23,6 +24,14 @@ export async function POST(req: Request) {
 
   if (!Array.isArray(panels) || panels.length === 0) {
     return NextResponse.json({ error: "panels 不能为空" }, { status: 400 });
+  }
+  // 生图是全站唯一真金白银的出口:格数上限 + 每 IP 按格限流,防一个 POST 烧光余额
+  if (panels.length > MAX_PANELS_PER_BATCH) {
+    return NextResponse.json({ error: `单次最多生成 ${MAX_PANELS_PER_BATCH} 格` }, { status: 400 });
+  }
+  const limited = rateLimit(req, "image", panels.length);
+  if (limited) {
+    return NextResponse.json({ error: limited }, { status: 429 });
   }
 
   const hasLLM = hasKey(IMAGE_EDIT_PROMPT_MODEL);
