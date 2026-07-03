@@ -38,11 +38,14 @@ export async function POST(req: Request) {
   const hasImageKey = !!process.env.SILICONFLOW_API_KEY;
 
   const results = await mapWithConcurrencyLimit(panels, CONCURRENCY_LIMIT, async (panel) => {
-    // 阶段一:图像编辑指令构建(便宜且快)
+    // 阶段一:图像编辑指令构建(便宜且快)。
+    // 多角色:按动作文本点名匹配本格出场角色;全都没点名时兜底传全部,
+    // 宁可参考图多给也不能让格子死于筛选(单格重抽同口径)
+    const inPanel = characters.length === 1 ? characters : characters.filter((c) => panel.characterAction.includes(c.name));
     const promptInput = {
       storySummary,
       panel,
-      characters: characters.filter((c) => panel.characterAction.includes(c.name) || characters.length === 1),
+      characters: inPanel.length > 0 ? inPanel : characters,
       styleLabel,
       styleReferenceImageKey,
       aspectRatio,

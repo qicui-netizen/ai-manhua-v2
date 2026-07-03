@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { loadProjects, loadCharacters, getQuota, deleteProject, getUserProfile, FREE_MONTHLY_QUOTA } from "@/lib/store";
+import { loadProjects, loadCharacters, getQuota, deleteProject, getUserProfile, getStorageUsage, FREE_MONTHLY_QUOTA } from "@/lib/store";
 import { CHARACTERS } from "@/lib/data";
 import type { Project, Character } from "@/lib/types";
 
@@ -17,6 +17,7 @@ export default function WorkspacePage() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [quota, setQuota] = useState(FREE_MONTHLY_QUOTA);
   const [avatar, setAvatar] = useState("");
+  const [storageRatio, setStorageRatio] = useState(0);
 
   useEffect(() => {
     // 仅"真正首次访问"引导到新建角色卡(一次性标记);之后点工作台Tab正常显示,
@@ -35,6 +36,7 @@ export default function WorkspacePage() {
       setCharacters(loadCharacters());
       setQuota(getQuota());
       setAvatar(getUserProfile().avatar);
+      setStorageRatio(getStorageUsage().ratio);
     };
     refresh();
     setReady(true);
@@ -56,7 +58,7 @@ export default function WorkspacePage() {
         <div>
           <h1 className="text-xl font-extrabold text-[var(--color-text)]">工作台</h1>
           <p className="mt-0.5 text-[13px] text-[var(--color-text-dim)]">
-            本月剩余 <span className="font-bold text-[var(--color-primary-light)]">{quota}</span> 次生成
+            本月剩余 <span className="font-bold text-[var(--color-primary-light)]">{quota}</span> 格生成额度
           </p>
         </div>
         <Link
@@ -86,6 +88,26 @@ export default function WorkspacePage() {
           />
         </div>
       </div>
+
+      {/* 本地存储水位:≥70% 提前预警,写满会从最旧作品开始剔图(评审摩擦点③) */}
+      {storageRatio >= 0.7 && (
+        <div
+          className="mx-5 mb-4 flex items-start gap-2 rounded-xl border p-3"
+          style={{
+            borderColor: storageRatio >= 0.9 ? "rgba(239,68,68,0.4)" : "rgba(245,158,11,0.35)",
+            background: storageRatio >= 0.9 ? "rgba(239,68,68,0.1)" : "rgba(245,158,11,0.1)",
+          }}
+        >
+          <span className="text-sm">{storageRatio >= 0.9 ? "🚨" : "⚠️"}</span>
+          <p
+            className="flex-1 text-xs leading-relaxed"
+            style={{ color: storageRatio >= 0.9 ? "var(--color-error)" : "var(--color-warning)" }}
+          >
+            本地存储已用 {Math.round(storageRatio * 100)}%。作品只保存在本机浏览器,写满后会从最旧的作品开始移除图片
+            (文字保留)——请尽快到「导出」页保存重要作品。
+          </p>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto px-5">
         {hasContent ? <ContentState projects={projects} characters={characters} /> : <EmptyState />}
@@ -236,12 +258,18 @@ function ContentState({ projects, characters }: { projects: Project[]; character
             >
               {deletingId === p.id ? "确认删除?" : "删除"}
             </button>
-            <div className="mb-2 flex aspect-[3/4] items-center justify-center overflow-hidden rounded-lg bg-[var(--color-surface-2)]">
+            <div className="relative mb-2 flex aspect-[3/4] items-center justify-center overflow-hidden rounded-lg bg-[var(--color-surface-2)]">
               {p.panels[0]?.imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={p.panels[0].imageUrl} alt={p.title} className="h-full w-full object-cover" />
               ) : (
                 <span className="text-3xl">📄</span>
+              )}
+              {/* 存储写满被自动剔图的作品:明示而非静默(评审摩擦点③) */}
+              {p.imagesTrimmed && (
+                <span className="absolute bottom-1.5 left-1.5 rounded-md bg-[rgba(245,158,11,0.9)] px-1.5 py-0.5 text-[9px] font-bold text-black">
+                  图片已释放·仅存文案
+                </span>
               )}
             </div>
             <p className="text-[13px] font-semibold text-[var(--color-text)]">{p.title || "未命名短篇"}</p>

@@ -22,7 +22,8 @@ function CreatePageInner() {
   const initialCharId = searchParams.get("character");
 
   const [characters, setCharacters] = useState<Character[]>([]);
-  const [selectedCharId, setSelectedCharId] = useState<string | null>(initialCharId);
+  // 多角色同框(评审摩擦点④:CP 是同人主流需求):最多 3 位,生图参考图槽位共 4 个
+  const [selectedCharIds, setSelectedCharIds] = useState<string[]>(initialCharId ? [initialCharId] : []);
   const [synopsis, setSynopsis] = useState("");
   const [tone, setTone] = useState<string>(TONES[1]);
   const [templateType, setTemplateType] = useState<TemplateType>("4_panel");
@@ -43,13 +44,25 @@ function CreatePageInner() {
     const list = loadCharacters();
     setCharacters(list);
     // URL 带的角色 id 可能已被删除或来自其他设备,无效时回退到第一个角色,避免主按钮永久禁用
-    setSelectedCharId((prev) => (prev && list.some((c) => c.id === prev) ? prev : list[0]?.id || null));
+    setSelectedCharIds((prev) => {
+      const valid = prev.filter((id) => list.some((c) => c.id === id));
+      return valid.length > 0 ? valid : list[0] ? [list[0].id] : [];
+    });
     setRiskCount(Number(localStorage.getItem(RISK_KEY) || "0"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const selectedChar = characters.find((c) => c.id === selectedCharId);
+  const selectedChars = characters.filter((c) => selectedCharIds.includes(c.id));
   const template = TEMPLATES.find((t) => t.id === templateType)!;
+
+  const MAX_CHARS = 3;
+  function toggleChar(id: string) {
+    setSelectedCharIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= MAX_CHARS) return prev; // 超上限忽略点击(按钮上有"最多3位"提示)
+      return [...prev, id];
+    });
+  }
 
   async function runAgent(withAdjustHint?: string, locked?: ExpandedPlot) {
     // 从确认页发起的重新生成,失败时应留在确认页,不能把用户已编辑的分镜踢回输入页。
@@ -65,7 +78,7 @@ function CreatePageInner() {
         body: JSON.stringify({
           synopsis,
           tone,
-          characters: selectedChar ? [{ name: selectedChar.name, canon: selectedChar.canon }] : [],
+          characters: selectedChars.map((c) => ({ name: c.name, canon: c.canon })),
           adjustHint: withAdjustHint,
           templateType,
           panelCount: template.panels,
@@ -138,11 +151,15 @@ function CreatePageInner() {
   }
 
   function handleConfirm() {
-    if (!expandedPlot || !selectedChar) return;
+    if (!expandedPlot || selectedChars.length === 0) return;
+    // handleConfirm 只在点击事件里调用,事件时刻取时间戳是预期行为;React Compiler
+    // 因函数捕获了派生数组(selectedChars)而按渲染期纯度分析,属误报
+    // eslint-disable-next-line react-hooks/purity
+    const createdAt = Date.now();
     const project = {
       id: newId("proj"),
       title: storyTitle || "未命名短篇",
-      characterIds: [selectedChar.id],
+      characterIds: selectedChars.map((c) => c.id),
       templateType,
       panelCount: panels.length,
       styleId,
@@ -153,8 +170,9 @@ function CreatePageInner() {
       expandedPlot,
       panels,
       status: "storyboard_confirmed" as const,
-      ownershipType: selectedChar.ownershipType,
-      createdAt: Date.now(),
+      // 从出场角色继承最严格值:任一角色是同人,整篇按同人(仅非商用)处理
+      ownershipType: selectedChars.some((c) => c.ownershipType === "fanwork") ? ("fanwork" as const) : ("original_oc" as const),
+      createdAt,
       exports: 0,
     };
     saveProject(project);
@@ -228,31 +246,52 @@ function CreatePageInner() {
             )}
           </div>
         )}
-        {/* 角色选择 */}
+        {/* 角色选择:可多选同框(CP/多人),最多3位 */}
         <div className="pf-card mb-4">
-          <div className="flex items-center gap-2.5">
-            {selectedChar?.referenceImages[0]?.url && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={selectedChar.referenceImages[0].url} alt="" className="h-10 w-10 rounded-full object-cover" />
-            )}
-            <div className="flex-1">
-              <p className="text-[13px] font-semibold text-[var(--color-text)]">{selectedChar ? `${selectedChar.name} 的故事` : "请选择角色"}</p>
-              {selectedChar?.referenceImages.length === 0 && (
-                <p className="text-[11px] text-[var(--color-error)]">该角色暂无参考图，出图前需先补传照片</p>
-              )}
-            </div>
-            <select
-              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1 text-xs text-[var(--color-text)]"
-              value={selectedCharId || ""}
-              onChange={(e) => setSelectedCharId(e.target.value)}
-            >
-              {characters.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+          <div className="mb-2.5 flex items-center justify-between">
+            <p className="text-[13px] font-semibold text-[var(--color-text)]">
+              {selectedChars.length > 0 ? `${selectedChars.map((c) => c.name).join(" × ")} 的故事` : "选择出场角色"}
+            </p>
+            <span className="text-[10px] text-[var(--color-text-dim)]">可多选 · 最多 3 位</span>
           </div>
+          <div className="flex flex-wrap gap-2">
+            {characters.map((c) => {
+              const on = selectedCharIds.includes(c.id);
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => toggleChar(c.id)}
+                  className="flex items-center gap-1.5 rounded-full border-2 py-1 pl-1 pr-3 transition-colors"
+                  style={{
+                    borderColor: on ? "var(--color-primary)" : "var(--color-border)",
+                    background: on ? "rgba(124,58,237,0.15)" : "var(--color-surface-2)",
+                  }}
+                >
+                  {c.referenceImages[0]?.url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={c.referenceImages[0].url} alt="" className="h-7 w-7 rounded-full object-cover" />
+                  ) : (
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-surface)] text-xs">👤</span>
+                  )}
+                  <span
+                    className="text-xs font-semibold"
+                    style={{ color: on ? "var(--color-primary-light)" : "var(--color-text-sub)" }}
+                  >
+                    {c.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {selectedChars.some((c) => c.referenceImages.length === 0) && (
+            <p className="mt-2 text-[11px] text-[var(--color-error)]">
+              {selectedChars
+                .filter((c) => c.referenceImages.length === 0)
+                .map((c) => c.name)
+                .join("、")}
+              暂无参考图，出图前需先补传照片
+            </p>
+          )}
         </div>
 
         {/* 一句话输入 */}
@@ -302,6 +341,7 @@ function CreatePageInner() {
             >
               <p className="text-[15px] font-bold text-[var(--color-text)]">{t.name}</p>
               <p className="mt-0.5 text-[10px] text-[var(--color-text-dim)]">{t.est}</p>
+              <p className="mt-0.5 text-[10px] font-semibold text-[var(--color-primary-light)]">耗 {t.panels} 格额度</p>
             </button>
           ))}
         </div>
@@ -349,7 +389,7 @@ function CreatePageInner() {
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 mx-auto max-w-md bg-gradient-to-t from-[var(--color-bg)] from-75% to-transparent px-5 pb-9 pt-3 sm:absolute">
-        <button onClick={handleSubmit} disabled={!selectedChar} className="pf-btn pf-btn-primary w-full">
+        <button onClick={handleSubmit} disabled={selectedChars.length === 0} className="pf-btn pf-btn-primary w-full">
           {selfWrite ? "拆分镜 →" : "✦ AI 补全剧情 + 分镜"}
         </button>
       </div>

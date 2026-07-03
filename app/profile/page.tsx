@@ -5,7 +5,6 @@ import {
   loadProjects,
   getQuota,
   getPlanClient,
-  setPlanClient,
   deleteProject,
   getUserProfile,
   saveUserProfile,
@@ -97,8 +96,8 @@ export default function ProfilePage() {
 
   function handleUpgrade() {
     if (plan === "member") return;
-    setPlanClient("member");
-    alert("演示版：已切换为会员（未接入真实支付）");
+    // 演示付费墙自洽:不做一键假切换(假开关损耗付费墙严肃性,评审摩擦点⑧),改价格预告
+    alert("会员即将上线：预计 ¥19/月，高清无水印导出 + 每篇 3 次免费重抽。敬请期待～");
   }
 
   return (
@@ -197,7 +196,7 @@ export default function ProfilePage() {
                 )}
               </div>
               <p className="text-xs text-[var(--color-text-sub)]">
-                本月剩余额度 {quota}/{FREE_MONTHLY_QUOTA}
+                本月剩余额度 {quota}/{FREE_MONTHLY_QUOTA} 格(每生成 1 格消耗 1 格)
               </p>
             </div>
             {plan !== "member" && (

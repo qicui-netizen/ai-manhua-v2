@@ -120,4 +120,6 @@ export type Project = {
   ownershipType: "original_oc" | "fanwork"; // 从角色继承的最严格值,决定导出侧商用拦截
   createdAt: number;
   exports: number;
+  // 存储写满时旧作品图片被自动释放的标记(saveProject 降级策略),作品卡据此显示角标
+  imagesTrimmed?: boolean;
 };

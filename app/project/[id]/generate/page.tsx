@@ -1,7 +1,7 @@
 "use client";
 import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getProject, saveProject, loadCharacters, spendQuota } from "@/lib/store";
+import { getProject, saveProject, loadCharacters, spendQuota, getQuota } from "@/lib/store";
 import { styleOf, platformOf } from "@/lib/data";
 import { persistRemoteImage } from "@/lib/persistImage";
 import { renderPanelWithBubbles } from "@/lib/exporter";
@@ -53,6 +53,20 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
     async function run() {
       // 防止生成中离开再进入触发第二次批量生成(双倍扣额度、结果互相覆盖)
       if (inFlightProjects.has(id)) return;
+      // 额度耗尽软拦截:演示期先在前端挡住,服务端闸门随账号体系落地
+      if (getQuota() <= 0) {
+        const blockedPanels = project!.panels.map((p) => ({ ...p, status: "error" as const }));
+        const blockedProject = { ...project!, panels: blockedPanels };
+        try {
+          saveProject(blockedProject);
+        } catch {
+          /* 存储失败时保持内存态即可 */
+        }
+        setProject(blockedProject);
+        setGenErrors({ [GLOBAL_ERROR_KEY]: "本月免费额度已用完（30 格/月，次月 1 日自动重置），暂时无法生成" });
+        setPhase("review");
+        return;
+      }
       inFlightProjects.add(id);
 
       // 标记 loading
@@ -128,6 +142,10 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
     if (inFlightProjects.has(id)) return;
     const failed = project.panels.filter((p) => p.status === "error");
     if (failed.length === 0) return;
+    if (getQuota() <= 0) {
+      setGenErrors((prev) => ({ ...prev, [GLOBAL_ERROR_KEY]: "本月免费额度已用完（次月 1 日自动重置），暂时无法重新生成" }));
+      return;
+    }
     inFlightProjects.add(id);
     setRetryingFailed(true);
     const projChars = characters.filter((c) => project.characterIds.includes(c.id));
@@ -193,6 +211,10 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
     // 跨挂载守卫:重抽在途时离开再进入,组件态 rerollingId 已丢失,
     // 必须靠模块级集合阻止对同一项目并发二次重抽(双倍扣额度、结果互相覆盖)
     if (inFlightProjects.has(id)) return;
+    if (getQuota() <= 0) {
+      setGenErrors((prev) => ({ ...prev, [GLOBAL_ERROR_KEY]: "本月免费额度已用完（次月 1 日自动重置），暂时无法重抽" }));
+      return;
+    }
     const latest = getProject(id) || project;
     const target = latest.panels.find((p) => p.panelId === panelId);
     if (!target) return;

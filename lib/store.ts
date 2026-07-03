@@ -76,9 +76,10 @@ export function saveProject(p: Project) {
   } catch (err) {
     // localStorage 约5MB上限:图片都是base64,多作品时容易写满。
     // 降级策略:从最旧的项目开始剔除图片(保住当前作品和所有项目的文字数据)逐步重试。
+    // imagesTrimmed 标记让作品卡能显示"图片已释放"角标,不再静默腐烂(评审摩擦点③)。
     let saved = false;
     for (let i = all.length - 1; i > 0 && !saved; i--) {
-      all[i] = { ...all[i], panels: all[i].panels.map((pn) => ({ ...pn, imageUrl: undefined })) };
+      all[i] = { ...all[i], imagesTrimmed: true, panels: all[i].panels.map((pn) => ({ ...pn, imageUrl: undefined })) };
       try {
         localStorage.setItem(PKEY, JSON.stringify(all));
         saved = true;
@@ -89,6 +90,23 @@ export function saveProject(p: Project) {
     if (!saved) throw err; // 只剩当前项目仍写不下,交给调用方提示
   }
   window.dispatchEvent(new Event("pf:update"));
+}
+
+// ── 本地存储水位(评审摩擦点③:写满会静默剔图,用户必须提前看到) ──
+// localStorage 无精确容量 API,按主流浏览器约 5MB(UTF-16 字符数口径)估算。
+const STORAGE_BUDGET = 5 * 1024 * 1024;
+export function getStorageUsage(): { ratio: number } {
+  if (typeof window === "undefined") return { ratio: 0 };
+  let used = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i) || "";
+      used += k.length + (localStorage.getItem(k)?.length || 0);
+    }
+  } catch {
+    return { ratio: 0 };
+  }
+  return { ratio: Math.min(1, used / STORAGE_BUDGET) };
 }
 
 export function deleteProject(id: string) {

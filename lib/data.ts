@@ -61,10 +61,11 @@ export const STYLES: Style[] = [
   { id: "bw", name: "黑白", prompt: "black and white manga, screentone, high contrast", bg: ["#efefef", "#d8d8d8"] },
 ];
 
+// est 按全流程实测口径(进创作页到拿到成图,含编剧+生图+等待),不是理想生成段
 export const TEMPLATES: Template[] = [
-  { id: "4_panel", name: "4格", panels: 4, layout: "2×2", desc: "经典四格,最轻量", est: "~3分钟" },
-  { id: "9_panel", name: "9格", panels: 9, layout: "3×3", desc: "完整起承转合", est: "~6分钟" },
-  { id: "vertical_strip", name: "条漫", panels: 6, layout: "纵向长图", desc: "竖屏滚动阅读", est: "~8分钟" },
+  { id: "4_panel", name: "4格", panels: 4, layout: "2×2", desc: "经典四格,最轻量", est: "~5分钟" },
+  { id: "9_panel", name: "9格", panels: 9, layout: "3×3", desc: "完整起承转合", est: "~8分钟" },
+  { id: "vertical_strip", name: "条漫", panels: 6, layout: "纵向长图", desc: "竖屏滚动阅读", est: "~10分钟" },
 ];
 
 export const PLATFORMS: Platform[] = [

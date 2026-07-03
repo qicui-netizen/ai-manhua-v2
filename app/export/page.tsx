@@ -1,7 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { getProject, saveProject, loadProjects, getPlanClient, setPlanClient, spendQuota } from "@/lib/store";
+import { getProject, saveProject, loadProjects, getPlanClient } from "@/lib/store";
 import { PLATFORMS, platformOf } from "@/lib/data";
 import { composeExport, downloadDataUrl } from "@/lib/exporter";
 import type { Project, TargetPlatform } from "@/lib/types";
@@ -55,7 +55,6 @@ function ExportPageInner() {
       const updated: Project = { ...project, status: "exported", exports: project.exports + 1 };
       saveProject(updated);
       setProject(updated);
-      spendQuota(0);
     } catch {
       // 常见原因:生成图URL过期或跨域受限导致canvas无法导出
       setExportError("导出失败：图片加载异常，请回上一步重新生成后再试");
@@ -135,11 +134,10 @@ function ExportPageInner() {
         <h1 className="text-lg font-extrabold text-[var(--color-text)]">导出稿件</h1>
         {!isPaid && (
           <button
-            onClick={() => {
-              // 演示版:与 /profile 页行为一致,直接切换套餐(未接真实支付)
-              setPlanClient("member");
-              setIsPaid(true);
-            }}
+            onClick={() =>
+              // 演示付费墙自洽:不做一键假切换,与 /profile 页同口径价格预告
+              alert("会员即将上线：预计 ¥19/月，高清无水印导出 + 每篇 3 次免费重抽。敬请期待～")
+            }
             className="flex items-center gap-1.5 rounded-full border border-[rgba(245,158,11,0.3)] bg-[rgba(245,158,11,0.15)] px-3 py-1"
           >
             <span className="text-xs font-bold text-[#F59E0B]">升级会员</span>
@@ -223,6 +221,9 @@ function ExportPageInner() {
             <button onClick={handleDownload} className="pf-btn pf-btn-primary w-full">
               下载图片
             </button>
+            <p className="mt-2.5 text-[11px] leading-relaxed text-[var(--color-text-dim)]">
+              作品数据仅保存在本机浏览器,清除浏览器数据或长期不访问可能丢失——下载的图片请妥善保存
+            </p>
           </div>
         )}
       </div>
