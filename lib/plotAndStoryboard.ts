@@ -92,6 +92,12 @@ vertical_strip：输出 4-8 格，适当拉伸构图，竖向阅读流畅
 
 1. 用户未指定角色名时，用A/B/「他」/「她」代替，不自行命名
 2. 用户已有角色设定时，严格遵守用户描述的性格与关系，不改写
+2b.【扩写忠实度铁律】用户输入的 synopsis 即使很短（如"雨中漫步"），里面的每一个具体元素——场景
+   （雨/黄昏/教室…）、动作（漫步/告白/追逐…）、意象或物件（伞/信件/猫…）——都必须真实、具体地
+   体现在扩写出的 plot 里，不能只提炼一个抽象基调（如"惆怅"）就丢弃这些具体内容、另起炉灶写别的
+   场景。判断标准：如果读者拿着原始 synopsis 去核对 plot，应该能清楚看到 synopsis 里每个词对应
+   在 plot 中的具体呈现，而不是"整体感觉像"。允许合理补充细节使故事完整（人物、对话、转折），
+   但补充部分要服务于 synopsis 已给出的场景/动作，不能替换掉它们。
 3. plot 字数控制在100-200字，有画面感优先于信息量
 4. 台词风格贴近漫画气泡：简短、有留白、情绪浓缩
 5. 梗概 < 30字时，status 输出 "insufficient_input"，clarify_message 提示用户补充细节，expanded_plot 与 panels 留空，不强行扩写、不进入第二步
@@ -122,6 +128,19 @@ vertical_strip：输出 4-8 格，适当拉伸构图，竖向阅读流畅
    (c) 相邻两格的景别仍要有远近变化(见节奏规则),但站位/朝向的"空间逻辑"必须连续。
    (d) visual_prompt_hint 里的构图描述要与 continuity_note 的站位一致(如 continuity_note 说云绯在左,
        hint 的构图层不能把他放右边)。
+11.【未建卡角色·固定外貌锚】输入的 characters 数组是用户已经建好角色卡(有专属参考图)的角色。如果你在
+   编写 plot 或分镜时,发现剧情客观上需要一个不在 characters 数组里的额外人物(如"女主""路人甲""同伴"
+   这类未被用户建卡的角色),必须遵守:
+   (a) 不能因为没有角色卡就回避写这个人物——剧情需要就正常写,但要给这个人物起一个具体称呼(不用"女主"
+       这种代称,起个简单的名字或身份词,如"小雨""女孩"均可,只要全篇统一)。
+   (b) 【固定外貌锚】在首次引入该人物的那一格起,为其生成一句具体、简短的中文外貌描述(发型发色、脸型、
+       穿着风格,如"齐肩黑直发，圆脸，白色连衣裙"),作为这个人物全篇唯一的外貌基准。
+   (c) 之后每一格只要这个人物出场,visual_prompt_hint 第1层描述该人物外貌时都必须使用完全相同的这句
+       外貌锚(可翻译成英文但语义不变),不得每格重新想象或改变外观——这是防止未建卡角色在多格图里
+       长相不一致、画风漂移的关键手段,和角色卡角色享有同等的"每格外观统一"待遇。
+   (d) 在输出 JSON 顶层新增 unmatched_characters 数组,为每一个这样的未建卡人物输出一条记录(见输出格式),
+       方便下游提示用户"要不要为这个人物也建一张角色卡"。如果全篇没有这类人物,unmatched_characters
+       输出空数组。
 
 ━━━ 只输出下方 JSON，不要任何其他文字或 markdown ━━━
 
@@ -154,7 +173,10 @@ vertical_strip：输出 4-8 格，适当拉伸构图，竖向阅读流畅
       "visual_prompt_hint": ""
     }
   ],
-  "risk_notes": []
+  "risk_notes": [],
+  "unmatched_characters": [
+    { "name": "string，剧情中出现但不在输入 characters 数组里的人物称呼", "appearance_anchor": "string，为其生成的固定外貌锚，全篇统一使用" }
+  ]
 }`;
 
 export type PlotAndStoryboardInput = {
@@ -171,8 +193,19 @@ export type PlotAndStoryboardInput = {
   lockedExpandedPlot?: ExpandedPlot;
 };
 
+// 剧情中出现但用户未建角色卡的人物:name 供确认页提示"是否要为TA建卡",
+// appearanceAnchor 是 LLM 生成的固定外貌描述,全篇每格引用同一句以保证长相一致
+export type UnmatchedCharacter = { name: string; appearanceAnchor: string };
+
 export type PlotAndStoryboardResult =
-  | { status: "ok"; storyTitle: string; expandedPlot: ExpandedPlot; panels: Panel[]; riskNotes: string[] }
+  | {
+      status: "ok";
+      storyTitle: string;
+      expandedPlot: ExpandedPlot;
+      panels: Panel[];
+      riskNotes: string[];
+      unmatchedCharacters: UnmatchedCharacter[];
+    }
   | { status: "insufficient_input"; clarifyMessage: string }
   | { status: "blocked"; reason: string; safeRewrite?: string };
 
@@ -269,12 +302,19 @@ export async function runPlotAndStoryboard(
       ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
         parsed.panels.map((p: any, i: number) => fromSnakePanel(p, i))
       : [];
+    const unmatchedCharacters: UnmatchedCharacter[] = Array.isArray(parsed.unmatched_characters)
+      ? parsed.unmatched_characters
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((u: any) => ({ name: String(u?.name || "").trim(), appearanceAnchor: String(u?.appearance_anchor || "").trim() }))
+          .filter((u: UnmatchedCharacter) => u.name && u.appearanceAnchor)
+      : [];
     return {
       status: "ok",
       storyTitle: parsed.story_title || "",
       expandedPlot: fromSnakeExpandedPlot(parsed.expanded_plot),
       panels,
       riskNotes: Array.isArray(parsed.risk_notes) ? parsed.risk_notes : [],
+      unmatchedCharacters,
     };
   } catch (e) {
     console.error("[plotAndStoryboard] JSON parse failed", e, raw.slice(0, 500));
@@ -321,5 +361,5 @@ export function offlinePlotAndStoryboard(input: PlotAndStoryboardInput): PlotAnd
     status: "idle",
   }));
 
-  return { status: "ok", storyTitle: "离线示例短篇", expandedPlot, panels, riskNotes: [] };
+  return { status: "ok", storyTitle: "离线示例短篇", expandedPlot, panels, riskNotes: [], unmatchedCharacters: [] };
 }

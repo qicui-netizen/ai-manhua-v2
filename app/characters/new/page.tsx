@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { saveCharacter, newId } from "@/lib/store";
 import { DEFAULT_AVATAR_POOL } from "@/lib/data";
 import LockTraitsEditor, { type LockedTraits } from "@/components/LockTraitsEditor";
@@ -42,10 +42,21 @@ function readAndCompress(file: File): Promise<string> {
 }
 
 export default function NewCharacterPage() {
+  return (
+    <Suspense fallback={null}>
+      <NewCharacterPageInner />
+    </Suspense>
+  );
+}
+
+function NewCharacterPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // 从分镜确认页"检测到未建卡角色"跳转过来时,预填建议的角色名,减少用户重复输入
+  const suggestedName = searchParams.get("suggestName") || "";
   const [step, setStep] = useState<1 | 2>(1);
 
-  const [name, setName] = useState("");
+  const [name, setName] = useState(suggestedName);
   const [desc, setDesc] = useState("");
   // 排他性标志特征(防多角色串脸):AI 识图自动填,用户可改;不填不阻塞
   const [signatureFeatures, setSignatureFeatures] = useState("");

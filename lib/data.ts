@@ -61,7 +61,7 @@ export const STYLES: Style[] = [
     name: "日漫",
     prompt: "japanese manga style, clean lineart, cel shading",
     anchor:
-      "japanese anime manga style, clean thin lineart, flat cel-shading, natural head-to-body proportions, expressive anime eyes, soft anime coloring",
+      "japanese anime manga style, clean thin lineart, flat cel-shading, realistic adult 7 to 7.5 heads tall body proportions (not chibi, not oversized head), expressive anime eyes, soft anime coloring",
     bg: ["#fbe9ec", "#e7eefb"],
   },
   {
@@ -69,7 +69,7 @@ export const STYLES: Style[] = [
     name: "国漫",
     prompt: "chinese guofeng comic style, ink accents, elegant linework",
     anchor:
-      "chinese guofeng comic style, elegant flowing linework, subtle ink-wash accents, refined semi-realistic proportions, delicate ornate detailing, muted traditional palette",
+      "chinese guofeng comic style, elegant flowing linework, subtle ink-wash accents, realistic adult 7 to 7.5 heads tall body proportions (not chibi, not oversized head), delicate ornate detailing, muted traditional palette",
     bg: ["#f4f1e8", "#e3ece4"],
   },
   {
@@ -77,7 +77,7 @@ export const STYLES: Style[] = [
     name: "韩漫",
     prompt: "korean manhwa style, glossy skin, soft lighting",
     anchor:
-      "korean manhwa webtoon style, semi-realistic proportions, glossy smooth skin rendering, soft gradient shading, gentle ambient lighting, polished digital coloring",
+      "korean manhwa webtoon style, realistic adult 7 to 7.5 heads tall body proportions (not chibi, not oversized head), glossy smooth skin rendering, soft gradient shading, gentle ambient lighting, polished digital coloring",
     bg: ["#f3eefb", "#fbeef6"],
   },
   {
@@ -93,7 +93,7 @@ export const STYLES: Style[] = [
     name: "厚涂",
     prompt: "thick paint CG style, volumetric lighting, painterly texture",
     anchor:
-      "thick-paint semi-realistic CG illustration, painterly brushstroke texture, rich volumetric lighting, soft rendered edges with no visible lineart, detailed rendering, cinematic color grading",
+      "thick-paint semi-realistic CG illustration, painterly brushstroke texture, realistic adult 7 to 7.5 heads tall body proportions (not chibi, not oversized head), rich volumetric lighting, soft rendered edges with no visible lineart, detailed rendering, cinematic color grading",
     bg: ["#2a2440", "#3d3a52"],
   },
   {
@@ -101,7 +101,7 @@ export const STYLES: Style[] = [
     name: "黑白",
     prompt: "black and white manga, screentone, high contrast",
     anchor:
-      "black and white manga, pure monochrome grayscale, screentone dot shading, bold ink hatching, high contrast, no color at all",
+      "black and white manga, realistic adult 7 to 7.5 heads tall body proportions (not chibi, not oversized head), pure monochrome grayscale, screentone dot shading, bold ink hatching, high contrast, no color at all",
     bg: ["#efefef", "#d8d8d8"],
   },
 ];
@@ -123,11 +123,18 @@ export const PLATFORMS: Platform[] = [
 
 export const TONES = ["搞笑", "治愈", "甜宠", "悬疑", "热血", "日常"] as const;
 
+// 快速示例区展示 + 空输入自动带入(轮换机制见 nextSynopsisExample),10条保证连续10次点击不重复
 export const SYNOPSIS_EXAMPLES = [
   "下雨天她躲在屋檐下，发现旁边站着一只流浪猫",
   "误打误撞坐在了他旁边，两人的耳机线缠在一起了",
   "考试前夕，她发现复习笔记被人悄悄补全了",
   "深夜便利店只剩最后一个布丁，两人同时伸手",
+  "天台上他递来一把伞，两人却往相反方向走去",
+  "转学第一天，她发现同桌的抽屉里藏着自己丢的橡皮",
+  "加班到最后一盏灯熄灭，电梯里只剩他们两个人",
+  "毕业典礼那天，她把写满字的纸条塞进了他的口袋",
+  "深夜图书馆闭馆铃响起，两人同时从同一本书里抬头",
+  "雨中漫步回家的路上，他忽然停下脚步不再往前走",
 ];
 
 export function templateOf(id: TemplateType): Template {

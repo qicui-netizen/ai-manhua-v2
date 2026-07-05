@@ -12,6 +12,8 @@ type GenerateBatchBody = {
   characters: Character[]; // 项目里涉及的全部角色(按 characterIds 解析出来的)
   styleLabel: string;
   styleAnchor: string; // 黄金英文风格锚,透传给生图指令 Agent 钉在每格结尾
+  // 剧情提到但用户未建角色卡的人物(如凭空出现的女主),带固定外貌锚,透传给生图指令 Agent 规则14
+  unmatchedCharacters?: { name: string; appearanceAnchor: string }[];
   styleReferenceImageKey?: string;
   aspectRatio: string;
   layoutTemplate: string;
@@ -22,7 +24,7 @@ const CONCURRENCY_LIMIT = 4;
 
 export async function POST(req: Request) {
   const body = (await req.json()) as GenerateBatchBody;
-  const { storySummary, panels, characters, styleLabel, styleAnchor, styleReferenceImageKey, aspectRatio, layoutTemplate } = body;
+  const { storySummary, panels, characters, styleLabel, styleAnchor, unmatchedCharacters, styleReferenceImageKey, aspectRatio, layoutTemplate } = body;
 
   if (!Array.isArray(panels) || panels.length === 0) {
     return NextResponse.json({ error: "panels 不能为空" }, { status: 400 });
@@ -58,6 +60,7 @@ export async function POST(req: Request) {
       storySummary,
       panel,
       characters: inPanel.length > 0 ? inPanel : characters.slice(0, MAX_REF_CHARS),
+      unmatchedCharacters,
       styleLabel,
       styleAnchor,
       styleReferenceImageKey,

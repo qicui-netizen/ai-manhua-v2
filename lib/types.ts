@@ -129,4 +129,7 @@ export type Project = {
   exports: number;
   // 存储写满时旧作品图片被自动释放的标记(saveProject 降级策略),作品卡据此显示角标
   imagesTrimmed?: boolean;
+  // 分镜阶段检测到的、剧情里出现但用户未建角色卡的人物(如凭空出现的女主),
+  // 携带 LLM 生成的固定外貌锚,生成阶段传给生图指令 Agent 保证该人物每格长相一致
+  unmatchedCharacters?: { name: string; appearanceAnchor: string }[];
 };

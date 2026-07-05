@@ -2,7 +2,7 @@
 // 本地存储层:角色 + 项目 + 生成额度,落 localStorage。
 // 当前阶段(先做可预览体验版本)不接真实数据库,后续要切换时只需替换本文件的实现。
 import type { Project, Character } from "./types";
-import { CHARACTERS } from "./data";
+import { CHARACTERS, SYNOPSIS_EXAMPLES } from "./data";
 
 const PKEY = "pf_projects_v2";
 const QKEY = "pf_quota_v2";
@@ -200,4 +200,46 @@ export function getPlanClient(): Plan {
 export function setPlanClient(p: Plan) {
   localStorage.setItem(PLANKEY, p);
   window.dispatchEvent(new Event("pf:update"));
+}
+
+// ── 空输入梗概轮换(需求:用户不写任何字直接点"AI补全"时,自动带入一条预设梗概,
+// 确保连续多次调用不撞同一条) ──
+// 洗牌后按顺序发放:游标走完 SYNOPSIS_EXAMPLES.length 个后重新洗牌,保证同一轮内
+// (最多 SYNOPSIS_EXAMPLES.length 次)互不重复,比"只避开最近几次"的滑动窗口方案更简单;
+// 重新洗牌时额外避免新一轮第一个撞上上一轮最后一个,防止两轮衔接处连续两次相同。
+const SYNOPSIS_ROTATION_KEY = "pf_synopsis_rotation_v1";
+type SynopsisRotationState = { order: number[]; cursor: number };
+
+function shuffledIndices(n: number, avoidFirst?: number): number[] {
+  const arr = Array.from({ length: n }, (_, i) => i);
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  if (n > 1 && avoidFirst !== undefined && arr[0] === avoidFirst) {
+    // 首个恰好撞上上一轮末尾:与随机挑一个其他位置互换,避免衔接处连续重复
+    const swapWith = 1 + Math.floor(Math.random() * (n - 1));
+    [arr[0], arr[swapWith]] = [arr[swapWith], arr[0]];
+  }
+  return arr;
+}
+
+export function nextSynopsisExample(): string {
+  const n = SYNOPSIS_EXAMPLES.length;
+  if (typeof window === "undefined" || n === 0) return SYNOPSIS_EXAMPLES[0] || "";
+  let state: SynopsisRotationState | null = null;
+  try {
+    state = JSON.parse(localStorage.getItem(SYNOPSIS_ROTATION_KEY) || "null");
+  } catch {
+    state = null;
+  }
+  // 首次使用、数据损坏、或示例库长度变化(如新增/删减示例)导致游标越界:重新洗牌
+  if (!state || !Array.isArray(state.order) || state.order.length !== n || state.cursor >= state.order.length) {
+    const prevLast = state && Array.isArray(state.order) && state.order.length > 0 ? state.order[state.order.length - 1] : undefined;
+    state = { order: shuffledIndices(n, prevLast), cursor: 0 };
+  }
+  const idx = state.order[state.cursor];
+  const next: SynopsisRotationState = { order: state.order, cursor: state.cursor + 1 };
+  localStorage.setItem(SYNOPSIS_ROTATION_KEY, JSON.stringify(next));
+  return SYNOPSIS_EXAMPLES[idx] || SYNOPSIS_EXAMPLES[0];
 }

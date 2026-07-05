@@ -8,6 +8,9 @@ const VLM_MODEL = process.env.MODERATION_VL_MODEL || "Qwen/Qwen3-VL-8B-Instruct"
 const SILICONFLOW_BASE = process.env.SILICONFLOW_BASE_URL || "https://api.siliconflow.cn/v1";
 
 const ANALYZE_PROMPT = `你是漫画角色设定师。分析这张角色参考图,提取可用于AI绘画保持角色一致性的信息。
+【重要】只关注图中的人物本身(长相/发型/服装/气质)与画风,主动无视并绝不提取以下无关元素:
+水印、logo、平台标识、文字/字幕、签名、二维码、边框、贴纸、图片压缩噪点、以及与角色无关的背景杂物。
+这些绝不能出现在你返回的任何字段里。
 只输出 JSON(不要代码块围栏):
 {
   "style": "画风归类,一句话(如:日系动漫/写实照片/水彩插画/3D渲染/像素风等)",

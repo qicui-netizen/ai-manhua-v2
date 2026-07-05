@@ -1,7 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { loadCharacters, saveProject, newId } from "@/lib/store";
+import { loadCharacters, saveProject, newId, nextSynopsisExample } from "@/lib/store";
 import { TEMPLATES, PLATFORMS, TONES, SYNOPSIS_EXAMPLES, styleOf, visualStyleOf, styleAnchorOf } from "@/lib/data";
 import type { Character, TemplateType, TargetPlatform, ExpandedPlot, Panel } from "@/lib/types";
 
@@ -30,6 +30,12 @@ function CreatePageInner() {
   const [styleId, setStyleId] = useState("jp-anime");
   const [targetPlatform, setTargetPlatform] = useState<TargetPlatform>("xhs_vertical");
   const [selfWrite, setSelfWrite] = useState(false);
+  // 用户手动点过"自己写"开关后,不再由字数自动接管,尊重用户的显式选择
+  const [selfWriteTouched, setSelfWriteTouched] = useState(false);
+  const [autoSelfWriteHint, setAutoSelfWriteHint] = useState(false);
+  // 超过一句话梗概的篇幅(约60字),视为用户已经写好完整故事,自动切"自己写"避免 AI 二次扩写
+  // 把用户写好的情节(如已包含的第二个角色)改写掉,进而分镜自由发挥出走样的形象/剧情
+  const SELF_WRITE_AUTO_THRESHOLD = 60;
 
   const [phase, setPhase] = useState<Phase>("input");
   const [errorMsg, setErrorMsg] = useState("");
@@ -39,6 +45,10 @@ function CreatePageInner() {
   const [storyTitle, setStoryTitle] = useState("");
   const [panels, setPanels] = useState<Panel[]>([]);
   const [adjustHint, setAdjustHint] = useState("");
+  // 剧情里出现但用户未建角色卡的人物(如凭空冒出的女主),LLM 已为其生成固定外貌锚
+  const [unmatchedCharacters, setUnmatchedCharacters] = useState<{ name: string; appearanceAnchor: string }[]>([]);
+  // 用户已看过提示、选择"继续生成"(不去建卡),不再重复弹出打断确认流程
+  const [unmatchedDismissed, setUnmatchedDismissed] = useState(false);
 
   useEffect(() => {
     const list = loadCharacters();
@@ -52,6 +62,20 @@ function CreatePageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    // 用户已手动切换过开关时,不再自动接管,尊重显式选择
+    if (selfWriteTouched) return;
+    if (synopsis.trim().length >= SELF_WRITE_AUTO_THRESHOLD && !selfWrite) {
+      setSelfWrite(true);
+      setAutoSelfWriteHint(true);
+    } else if (synopsis.trim().length < SELF_WRITE_AUTO_THRESHOLD && selfWrite && autoSelfWriteHint) {
+      // 字数缩回去了(用户删了内容):同样是自动行为触发的,自动撤回,而非用户手动选择
+      setSelfWrite(false);
+      setAutoSelfWriteHint(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [synopsis]);
+
   const selectedChars = characters.filter((c) => selectedCharIds.includes(c.id));
   const template = TEMPLATES.find((t) => t.id === templateType)!;
 
@@ -64,7 +88,7 @@ function CreatePageInner() {
     });
   }
 
-  async function runAgent(withAdjustHint?: string, locked?: ExpandedPlot) {
+  async function runAgent(withAdjustHint?: string, locked?: ExpandedPlot, synopsisOverride?: string) {
     // 从确认页发起的重新生成,失败时应留在确认页,不能把用户已编辑的分镜踢回输入页。
     // 用调用时的 phase 判断来源(而非 expandedPlot 是否存在):用户从确认页点返回回到输入页后
     // expandedPlot 仍有旧值,若据此判断会把新提交的失败错误地踢回旧数据的确认页
@@ -76,7 +100,9 @@ function CreatePageInner() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          synopsis,
+          // synopsisOverride:空输入自动轮换场景下,setSynopsis 的 state 更新是异步的,
+          // 此刻闭包里的 synopsis 仍是空字符串,必须显式传入刚选中的梗概,不能依赖 state
+          synopsis: synopsisOverride ?? synopsis,
           tone,
           characters: selectedChars.map((c) => ({ name: c.name, canon: c.canon })),
           adjustHint: withAdjustHint,
@@ -108,6 +134,8 @@ function CreatePageInner() {
       setStoryTitle(data.storyTitle || "");
       setExpandedPlot(data.expandedPlot);
       setPanels(data.panels || []);
+      setUnmatchedCharacters(Array.isArray(data.unmatchedCharacters) ? data.unmatchedCharacters : []);
+      setUnmatchedDismissed(false);
       setPhase("confirm");
     } catch {
       setErrorMsg("生成失败，请检查网络后重试");
@@ -143,6 +171,14 @@ function CreatePageInner() {
       });
       return;
     }
+    if (synopsis.trim().length === 0) {
+      // 用户什么都没写就点"AI补全":自动带入一条轮换梗概,而不是报错拦住——
+      // 轮换保证连续多次点击不会撞上同一个预设剧本(见 nextSynopsisExample)
+      const picked = nextSynopsisExample();
+      setSynopsis(picked);
+      runAgent(undefined, undefined, picked);
+      return;
+    }
     if (synopsis.trim().length < 4) {
       setErrorMsg("请先输入一句话故事梗概（至少4个字）");
       setPhase("error");
@@ -175,6 +211,7 @@ function CreatePageInner() {
       ownershipType: selectedChars.some((c) => c.ownershipType === "fanwork") ? ("fanwork" as const) : ("original_oc" as const),
       createdAt,
       exports: 0,
+      unmatchedCharacters,
     };
     saveProject(project);
     router.push(`/project/${project.id}/generate`);
@@ -204,6 +241,13 @@ function CreatePageInner() {
         onRegenerate={() => runAgent(adjustHint, selfWrite ? expandedPlot ?? undefined : undefined)}
         onReplotFromScratch={() => setPhase("input")}
         onConfirm={handleConfirm}
+        unmatchedCharacters={unmatchedDismissed ? [] : unmatchedCharacters}
+        onDismissUnmatched={() => setUnmatchedDismissed(true)}
+        onGoBuildCharacter={() => {
+          // 未建卡角色的建议名字预填进新建角色页,减少用户重复输入
+          const first = unmatchedCharacters[0];
+          router.push(`/characters/new${first ? `?suggestName=${encodeURIComponent(first.name)}` : ""}`);
+        }}
       />
     );
   }
@@ -373,7 +417,11 @@ function CreatePageInner() {
 
         {/* 自己写 */}
         <button
-          onClick={() => setSelfWrite((v) => !v)}
+          onClick={() => {
+            setSelfWriteTouched(true);
+            setAutoSelfWriteHint(false);
+            setSelfWrite((v) => !v);
+          }}
           className="mb-2 flex w-full items-center gap-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3"
         >
           <div className="flex-1 text-left">
@@ -381,6 +429,11 @@ function CreatePageInner() {
             <p className="mt-0.5 text-[11px] text-[var(--color-text-dim)]">跳过 AI 补全，直接把你写的内容拆分镜</p>
           </div>
         </button>
+        {autoSelfWriteHint && (
+          <p className="mb-2 text-[11px] text-[var(--color-primary-light)]">
+            检测到你写的是完整故事，已自动切换为「自己写剧情」，不再由 AI 二次扩写改动你的内容
+          </p>
+        )}
 
         {phase === "error" && errorMsg && (
           <div className="mb-3 rounded-xl border border-[rgba(239,68,68,0.4)] bg-[rgba(239,68,68,0.1)] p-3 text-xs text-[var(--color-error)]">
@@ -409,6 +462,9 @@ function ConfirmView({
   onRegenerate,
   onReplotFromScratch,
   onConfirm,
+  unmatchedCharacters,
+  onDismissUnmatched,
+  onGoBuildCharacter,
 }: {
   storyTitle: string;
   expandedPlot: ExpandedPlot;
@@ -420,6 +476,9 @@ function ConfirmView({
   onRegenerate: () => void;
   onReplotFromScratch: () => void;
   onConfirm: () => void;
+  unmatchedCharacters: { name: string; appearanceAnchor: string }[];
+  onDismissUnmatched: () => void;
+  onGoBuildCharacter: () => void;
 }) {
   // 默认展开:扩写剧情是核心中间产物,用户要能直接看到(可手动收起)
   const [plotExpanded, setPlotExpanded] = useState(true);
@@ -441,6 +500,27 @@ function ConfirmView({
           <span>✅</span>
           <p className="text-[13px] font-semibold text-[var(--color-success)]">剧情 + 分镜生成完成！</p>
         </div>
+        {unmatchedCharacters.length > 0 && (
+          <div className="mb-3 rounded-xl border border-[rgba(168,85,247,0.5)] bg-[rgba(168,85,247,0.12)] p-3">
+            <p className="mb-1.5 text-[13px] font-semibold text-[var(--color-primary-light)]">
+              检测到「{unmatchedCharacters.map((u) => u.name).join("、")}」还没建角色卡
+            </p>
+            <p className="mb-2 text-xs leading-relaxed text-[var(--color-text-sub)]">
+              剧情里出现了TA，但没有专属参考图。现在生成会用固定外貌描述保持TA每格长相一致，但效果不如真实参考图稳定。建议先去建一张角色卡再回来生成。
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={onGoBuildCharacter}
+                className="rounded-lg bg-[rgba(168,85,247,0.2)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary-light)]"
+              >
+                去建角色卡
+              </button>
+              <button onClick={onDismissUnmatched} className="rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--color-text-dim)]">
+                不用了，继续生成
+              </button>
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-1.5">
           <button onClick={onReplotFromScratch} aria-label="返回输入" className="-ml-2 flex h-9 w-9 items-center justify-center">
             <svg width="10" height="17" viewBox="0 0 10 17" fill="none">
