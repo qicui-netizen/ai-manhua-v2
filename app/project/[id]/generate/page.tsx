@@ -82,6 +82,7 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
             panels: project!.panels,
             characters: projChars,
             styleLabel: style.name,
+            styleAnchor: style.anchor,
             aspectRatio: platform.ratio,
             layoutTemplate: project!.templateType === "4_panel" ? "4格" : project!.templateType === "9_panel" ? "9格" : "条漫",
           }),
@@ -160,6 +161,7 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
           panels: failed,
           characters: projChars,
           styleLabel: style.name,
+          styleAnchor: style.anchor,
           aspectRatio: platform.ratio,
           layoutTemplate: project.templateType === "4_panel" ? "4格" : project.templateType === "9_panel" ? "9格" : "条漫",
         }),
@@ -236,6 +238,7 @@ export default function GeneratePage({ params }: { params: Promise<{ id: string 
           panel: target,
           characters: charsForApi,
           styleLabel: style.name,
+          styleAnchor: style.anchor,
           aspectRatio: platform.ratio,
           layoutTemplate: latest.templateType === "4_panel" ? "4格" : latest.templateType === "9_panel" ? "9格" : "条漫",
           // 修正要求作为一等字段传递(不拼进 visualPromptHint,防离线兜底 slice 截断丢失)

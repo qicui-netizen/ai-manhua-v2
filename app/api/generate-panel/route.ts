@@ -11,6 +11,7 @@ type GeneratePanelBody = {
   panel: Panel;
   characters: Character[];
   styleLabel: string;
+  styleAnchor: string; // 黄金英文风格锚,单格重抽同样钉在结尾,保证与全篇一致
   styleReferenceImageKey?: string;
   aspectRatio: string;
   layoutTemplate: string;
@@ -24,10 +25,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ status: "error", notes: limited }, { status: 429 });
   }
   const body = (await req.json()) as GeneratePanelBody;
-  const { storySummary, panel, characters, styleLabel, styleReferenceImageKey, aspectRatio, layoutTemplate } = body;
+  const { storySummary, panel, characters, styleLabel, styleAnchor, styleReferenceImageKey, aspectRatio, layoutTemplate } = body;
   const adjustHint = (body.adjustHint || "").trim().slice(0, 50);
 
-  const promptInput = { storySummary, panel, characters, styleLabel, styleReferenceImageKey, aspectRatio, layoutTemplate, adjustHint };
+  const promptInput = { storySummary, panel, characters, styleLabel, styleAnchor, styleReferenceImageKey, aspectRatio, layoutTemplate, adjustHint };
   const hasLLM = hasKey(IMAGE_EDIT_PROMPT_MODEL);
   const editResult = hasLLM
     ? (await runImageEditPrompt(promptInput)) || offlineImageEditPrompt(promptInput)

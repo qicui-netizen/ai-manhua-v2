@@ -11,6 +11,7 @@ type GenerateBatchBody = {
   panels: Panel[];
   characters: Character[]; // 项目里涉及的全部角色(按 characterIds 解析出来的)
   styleLabel: string;
+  styleAnchor: string; // 黄金英文风格锚,透传给生图指令 Agent 钉在每格结尾
   styleReferenceImageKey?: string;
   aspectRatio: string;
   layoutTemplate: string;
@@ -21,7 +22,7 @@ const CONCURRENCY_LIMIT = 4;
 
 export async function POST(req: Request) {
   const body = (await req.json()) as GenerateBatchBody;
-  const { storySummary, panels, characters, styleLabel, styleReferenceImageKey, aspectRatio, layoutTemplate } = body;
+  const { storySummary, panels, characters, styleLabel, styleAnchor, styleReferenceImageKey, aspectRatio, layoutTemplate } = body;
 
   if (!Array.isArray(panels) || panels.length === 0) {
     return NextResponse.json({ error: "panels 不能为空" }, { status: 400 });
@@ -40,14 +41,25 @@ export async function POST(req: Request) {
 
   const results = await mapWithConcurrencyLimit(panels, CONCURRENCY_LIMIT, async (panel) => {
     // 阶段一:图像编辑指令构建(便宜且快)。
-    // 多角色:按动作文本点名匹配本格出场角色;全都没点名时兜底传全部,
-    // 宁可参考图多给也不能让格子死于筛选(单格重抽同口径)
-    const inPanel = characters.length === 1 ? characters : characters.filter((c) => panel.characterAction.includes(c.name));
+    // 【多角色同框·CP刚需】曾用 characterAction.includes(name) 逐格筛角色,导致分镜写成单人
+    // 镜头的格子只传1人参考图→第二个角色在该格消失/长相跑飞。改为:角色总数≤生图槽位(3人,
+    // slot 上限4含画风)时,把全部选中角色的参考图都传给生图指令 Agent,由它按画面决定主次构图,
+    // 而非在 route 层就把没被点名的角色硬丢掉——参考图多给不出错,丢角色才出错。
+    // 仅当角色数>3(超出可用槽位)才回退到按点名裁剪,保留最相关的。
+    const MAX_REF_CHARS = 3;
+    const named = characters.filter((c) => panel.characterAction.includes(c.name));
+    const inPanel =
+      characters.length <= MAX_REF_CHARS
+        ? characters // 全传:双人/三人同框稳定保持每个角色长相
+        : named.length > 0
+        ? named.slice(0, MAX_REF_CHARS) // 超员时按本格点名裁剪
+        : characters.slice(0, MAX_REF_CHARS);
     const promptInput = {
       storySummary,
       panel,
-      characters: inPanel.length > 0 ? inPanel : characters,
+      characters: inPanel.length > 0 ? inPanel : characters.slice(0, MAX_REF_CHARS),
       styleLabel,
+      styleAnchor,
       styleReferenceImageKey,
       aspectRatio,
       layoutTemplate,

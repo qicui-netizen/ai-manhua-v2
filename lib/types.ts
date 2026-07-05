@@ -18,6 +18,10 @@ export type Character = {
   source: CharacterSource;
   ageFeel: string;
   canon: string; // 人设「宪法」:锁定的外形特征描述
+  // 排他性标志特征:最能把该角色和其他角色区分开的 1-3 个独特标记(如"左眼下泪痣、总戴红围巾、
+  // 右耳三个耳骨钉")。与 canon(泛化外貌)不同,它专用于多角色同框防串脸——生图指令 Agent 强制
+  // 让每个角色引用各自的 signatureFeatures,避免 CP 两张脸越画越像。AI 识图自动提取,用户可改。可选。
+  signatureFeatures?: string;
   outfit: string;
   referenceImages: UploadedImage[]; // 用户上传的真实参考图(0-6张)
   visual: {
@@ -70,6 +74,9 @@ export type Panel = {
   camera: string;
   characterAction: string;
   emotion: string;
+  // 与上一格的连续性衔接(站位/朝向/视线/道具/情绪如何承接),供生图指令 Agent 保持格间一致,
+  // 治"分格孤立生成导致站位朝向跳变、剧情不连贯"。可选:旧项目数据与首格无此字段
+  continuityNote?: string;
   dialogue: string;
   caption: string;
   // 气泡样式,缺省时用 lib/bubbles.ts 的默认值(旧项目数据兼容)

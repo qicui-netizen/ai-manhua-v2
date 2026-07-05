@@ -1,33 +1,27 @@
 @import "tailwindcss";
 
 :root {
-  --color-primary: #7c3aed;
+  --color-primary: #7b3fff;
   --color-primary-light: #8b5cf6;
-  --color-primary-dark: #6d28d9;
-  --color-primary-bg: #ede9fe;
-  --color-accent: #f59e0b;
-  --color-accent-bg: #fef3c7;
+  --color-primary-dark: #5b21d6;
+  --color-primary-bg: rgba(123, 63, 255, 0.1);
+  --color-accent: #ff47b2;
+  --color-accent-bg: rgba(255, 71, 178, 0.12);
 
-  --color-bg: #0f0f13;
-  --color-surface: #1a1a24;
-  --color-surface-2: #24243a;
-  --color-border: #2e2e48;
-  --color-border-light: #3d3d60;
+  --color-bg: #080a2f;
+  --color-surface: rgba(255, 255, 255, 0.13);
+  --color-surface-2: rgba(255, 255, 255, 0.12);
+  --color-border: rgba(255, 255, 255, 0.2);
+  --color-border-light: rgba(255, 255, 255, 0.32);
 
-  --color-text: #f1f0ff;
-  --color-text-sub: #a09dc0;
-  --color-text-dim: #5e5c80;
+  --color-text: #f6f2ff;
+  --color-text-sub: rgba(246, 242, 255, 0.72);
+  --color-text-dim: rgba(246, 242, 255, 0.56);
 
   --color-success: #10b981;
   --color-warning: #f59e0b;
   --color-error: #ef4444;
-}
 
-/* 注:未使用 Tailwind 生成的 bg-primary/bg-surface 等工具类(全站用 bg-[var(--color-xxx)]
-   任意值语法直接引用下面 :root 定义的变量),因此不需要 @theme 块。之前在这里加过
-   @theme inline 且变量名与 :root 同名,导致 CSS 自引用(--color-bg: var(--color-bg))
-   循环失效,页面全白——故不再声明 @theme,只保留下面的自定义字体变量。 */
-:root {
   --font-sans: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
 }
 
@@ -38,34 +32,221 @@
 
 html,
 body {
-  background: var(--color-bg);
+  background: #080a2f;
   color: var(--color-text);
   font-family: var(--font-sans);
   min-height: 100%;
 }
 
+.pf-app-shell {
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 18% 10%, rgba(78, 102, 255, 0.45), transparent 220px),
+    radial-gradient(circle at 86% 86%, rgba(255, 77, 185, 0.42), transparent 250px),
+    linear-gradient(150deg, #080a2f 0%, #10135b 50%, #3d1b92 80%, #9d3cc8 122%);
+}
+
+.pf-app-shell::before,
+.pf-app-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pf-app-shell::before {
+  z-index: -3;
+  opacity: 0.204;
+  background:
+    radial-gradient(circle, rgba(255,255,255,0.24) 1px, transparent 1.4px) 0 0 / 100px 100px,
+    repeating-radial-gradient(circle at 0 0, rgba(255,255,255,0.3) 0 1.5px, transparent 2px 60px) -62px 64px / 1276px 1276px,
+    repeating-radial-gradient(circle at 100% 100%, rgba(255,255,255,0.22) 0 1.4px, transparent 2px 67px) 206px 552px / 1566px 1566px;
+  mix-blend-mode: screen;
+}
+
+.pf-app-shell::after {
+  z-index: -2;
+  opacity: 0.08;
+  background:
+    linear-gradient(112deg, transparent 0 16%, #fff 16.2% 16.8%, transparent 17% 100%),
+    linear-gradient(18deg, transparent 0 68%, #fff 68.2% 69%, transparent 69.4% 100%),
+    linear-gradient(152deg, transparent 0 76%, #fff 76.3% 77.2%, transparent 77.6% 100%);
+}
+
+.pf-panel-ghost,
+.pf-burst,
+.pf-spark,
+.pf-diamond,
+.pf-glow-orb {
+  position: absolute;
+  pointer-events: none;
+}
+
+.pf-panel-ghost {
+  z-index: -1;
+  border: 1.5px solid rgba(211, 196, 255, 0.14);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.035), rgba(255,255,255,0.008)),
+    repeating-linear-gradient(115deg, rgba(255,255,255,0.045) 0 1px, transparent 1px 47px);
+  filter: drop-shadow(0 0 18px rgba(137, 88, 255, 0.22));
+}
+
+.pf-panel-ghost.one {
+  width: 180px;
+  height: 230px;
+  left: -70px;
+  top: 24px;
+  transform: rotate(-12deg);
+}
+
+.pf-panel-ghost.two {
+  width: 170px;
+  height: 250px;
+  right: -64px;
+  top: 118px;
+  transform: rotate(13deg);
+}
+
+.pf-panel-ghost.three {
+  width: 220px;
+  height: 160px;
+  left: -80px;
+  bottom: 96px;
+  transform: rotate(8deg);
+}
+
+.pf-burst {
+  z-index: -1;
+  color: rgba(226, 210, 255, 0.1);
+  font-size: 45px;
+  font-weight: 1000;
+  line-height: 1;
+  letter-spacing: 0;
+  -webkit-text-stroke: 1.5px rgba(226, 210, 255, 0.17);
+  text-shadow: 0 0 18px rgba(143, 88, 255, 0.22);
+}
+
+.pf-burst::before {
+  content: "";
+  position: absolute;
+  inset: -18px -24px;
+  z-index: -1;
+  opacity: 0.36;
+  background: rgba(123, 63, 255, 0.15);
+  border: 2px solid rgba(181, 134, 255, 0.32);
+  clip-path: polygon(50% 0%, 58% 27%, 84% 12%, 73% 39%, 100% 50%, 73% 61%, 84% 88%, 58% 73%, 50% 100%, 42% 73%, 16% 88%, 27% 61%, 0% 50%, 27% 39%, 16% 12%, 42% 27%);
+  filter: drop-shadow(0 0 12px rgba(143, 88, 255, 0.34));
+}
+
+.pf-burst.pow {
+  right: -14px;
+  top: 186px;
+  transform: rotate(10deg);
+}
+
+.pf-burst.boom {
+  left: -42px;
+  top: 424px;
+  transform: rotate(-12deg);
+}
+
+.pf-spark {
+  z-index: -1;
+  width: 16px;
+  height: 16px;
+  opacity: 0.72;
+  transform: rotate(45deg);
+  filter: drop-shadow(0 0 8px rgba(255,255,255,0.62));
+}
+
+.pf-spark::before,
+.pf-spark::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.pf-spark::before {
+  width: 16px;
+  height: 3px;
+}
+
+.pf-spark::after {
+  width: 3px;
+  height: 16px;
+}
+
+.pf-spark.a { left: 56px; top: 92px; }
+.pf-spark.b { right: 68px; top: 70px; transform: rotate(45deg) scale(.72); }
+.pf-spark.c { right: 42px; bottom: 240px; transform: rotate(45deg) scale(.82); }
+
+.pf-diamond {
+  z-index: -1;
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 100, 214, 0.74);
+  border-radius: 3px;
+  opacity: 0.8;
+  transform: rotate(45deg);
+  box-shadow:
+    0 0 10px rgba(255, 100, 214, 0.5),
+    inset 0 0 8px rgba(123, 63, 255, 0.34);
+}
+
+.pf-diamond.d1 { left: 28px; top: 244px; transform: rotate(45deg) scale(.72); }
+.pf-diamond.d2 { right: 24px; top: 146px; border-color: rgba(141, 95, 255, .82); transform: rotate(45deg) scale(.82); }
+.pf-diamond.d3 { right: 28px; bottom: 254px; transform: rotate(45deg) scale(.92); }
+
+.pf-glow-orb {
+  z-index: -1;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  opacity: 0.72;
+  box-shadow: 0 0 12px #fff, 0 0 24px rgba(123, 63, 255, .78);
+}
+
+.pf-glow-orb.o1 { left: 22px; bottom: 160px; }
+.pf-glow-orb.o2 { right: 18px; top: 314px; transform: scale(.74); }
+
 .pf-input {
   width: 100%;
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border-light);
-  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255,255,255,0.72);
+  border-radius: 16px;
   padding: 14px 16px;
-  color: var(--color-text);
+  color: #19183a;
   font-size: 15px;
   outline: none;
-  transition: border-color 150ms ease;
+  box-shadow: 0 12px 30px rgba(4, 5, 28, 0.14), inset 0 1px 0 rgba(255,255,255,0.8);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 .pf-input:focus {
-  border-color: var(--color-primary);
+  border-color: rgba(123, 63, 255, 0.42);
+  box-shadow: 0 0 0 4px rgba(123, 63, 255, 0.14), 0 14px 34px rgba(4, 5, 28, 0.16);
 }
 .pf-input::placeholder {
-  color: var(--color-text-dim);
+  color: rgba(25, 24, 58, 0.42);
 }
 
 .pf-card {
-  background: var(--color-surface);
-  border-radius: 16px;
-  border: 1px solid var(--color-border);
+  --color-text: #19183a;
+  --color-text-sub: rgba(25, 24, 58, 0.6);
+  --color-text-dim: rgba(25, 24, 58, 0.48);
+  --color-surface: rgba(255, 255, 255, 0.9);
+  --color-surface-2: rgba(255, 255, 255, 0.58);
+  --color-border: rgba(25, 24, 58, 0.12);
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.72);
+  box-shadow: 0 18px 44px rgba(4, 5, 28, 0.24), inset 0 1px 0 rgba(255,255,255,0.8);
+  color: #19183a;
   padding: 16px;
 }
 
@@ -73,16 +254,17 @@ body {
   padding: 7px 12px;
   border-radius: 9999px;
   font-size: 13px;
-  background: var(--color-surface-2);
-  color: var(--color-text-sub);
-  border: 1px solid var(--color-border);
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.72);
+  color: rgba(25, 24, 58, 0.58);
+  border: 1px solid rgba(25, 24, 58, 0.12);
   cursor: pointer;
   transition: all 150ms ease;
 }
 .pf-chip.active {
-  background: var(--color-primary-bg);
-  color: var(--color-primary);
-  border-color: var(--color-primary);
+  background: rgba(123, 63, 255, 0.12);
+  color: #6b3cff;
+  border-color: rgba(123, 63, 255, 0.24);
 }
 
 .pf-btn {
@@ -91,9 +273,9 @@ body {
   justify-content: center;
   gap: 8px;
   padding: 14px 20px;
-  border-radius: 12px;
+  border-radius: 16px;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 800;
   cursor: pointer;
   border: none;
   outline: none;
@@ -101,7 +283,7 @@ body {
   transition: opacity 150ms ease, transform 150ms ease;
 }
 .pf-btn:active {
-  opacity: 0.8;
+  opacity: 0.9;
   transform: scale(0.98);
 }
 .pf-btn:disabled {
@@ -109,18 +291,20 @@ body {
   cursor: not-allowed;
 }
 .pf-btn-primary {
-  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  background: linear-gradient(135deg, #6b4cff, #ff47b2);
   color: #fff;
-  box-shadow: 0 0 20px rgba(124, 58, 237, 0.35);
+  border: 1px solid rgba(255,255,255,0.5);
+  box-shadow: 0 16px 34px rgba(123,69,255,.36);
 }
 .pf-btn-secondary {
-  background: var(--color-surface-2);
-  color: var(--color-text);
-  border: 1px solid var(--color-border-light);
+  background: rgba(255, 255, 255, 0.9);
+  color: #6b3cff;
+  border: 1px solid rgba(255,255,255,0.72);
+  box-shadow: 0 12px 30px rgba(4, 5, 28, 0.14);
 }
 .pf-btn-ghost {
   background: transparent;
-  color: var(--color-primary-light);
+  color: rgba(246, 242, 255, 0.82);
 }
 
 @keyframes pf-spin {
@@ -131,8 +315,8 @@ body {
 .pf-spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid var(--color-border-light);
-  border-top-color: var(--color-primary-light);
+  border: 2px solid rgba(255,255,255,0.32);
+  border-top-color: #ff47b2;
   border-radius: 50%;
   animation: pf-spin 0.8s linear infinite;
 }
@@ -146,8 +330,120 @@ body {
   }
 }
 .pf-skeleton {
-  background: linear-gradient(90deg, var(--color-surface) 25%, var(--color-surface-2) 50%, var(--color-surface) 75%);
+  background: linear-gradient(90deg, rgba(255,255,255,0.72) 25%, rgba(255,255,255,0.9) 50%, rgba(255,255,255,0.72) 75%);
   background-size: 200% 100%;
   animation: pf-shimmer 1.5s infinite;
+  border-radius: 10px;
+}
+
+.pf-classic-shell {
+  --color-primary: #7c3aed;
+  --color-primary-light: #8b5cf6;
+  --color-primary-dark: #6d28d9;
+  --color-primary-bg: #ede9fe;
+  --color-accent: #f59e0b;
+  --color-accent-bg: #fef3c7;
+  --color-bg: #0f0f13;
+  --color-surface: #1a1a24;
+  --color-surface-2: #24243a;
+  --color-border: #2e2e48;
+  --color-border-light: #3d3d60;
+  --color-text: #f1f0ff;
+  --color-text-sub: #a09dc0;
+  --color-text-dim: #5e5c80;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.pf-classic-shell .pf-input {
+  width: 100%;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-light);
+  border-radius: 12px;
+  box-shadow: none;
+  padding: 14px 16px;
+  color: var(--color-text);
+  font-size: 15px;
+  outline: none;
+  transition: border-color 150ms ease;
+}
+.pf-classic-shell .pf-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: none;
+}
+.pf-classic-shell .pf-input::placeholder {
+  color: var(--color-text-dim);
+}
+
+.pf-classic-shell .pf-card {
+  --color-text: #f1f0ff;
+  --color-text-sub: #a09dc0;
+  --color-text-dim: #5e5c80;
+  --color-surface: #1a1a24;
+  --color-surface-2: #24243a;
+  --color-border: #2e2e48;
+  background: var(--color-surface);
+  border-radius: 16px;
+  border: 1px solid var(--color-border);
+  box-shadow: none;
+  color: var(--color-text);
+  padding: 16px;
+}
+
+.pf-classic-shell .pf-chip {
+  padding: 7px 12px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 400;
+  background: var(--color-surface-2);
+  color: var(--color-text-sub);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.pf-classic-shell .pf-chip.active {
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.pf-classic-shell .pf-btn {
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  min-height: 50px;
+}
+.pf-classic-shell .pf-btn:active {
+  opacity: 0.8;
+}
+.pf-classic-shell .pf-btn-primary {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  color: #fff;
+  border: none;
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.35);
+}
+.pf-classic-shell .pf-btn-secondary {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-light);
+  box-shadow: none;
+}
+.pf-classic-shell .pf-btn-ghost {
+  background: transparent;
+  color: var(--color-primary-light);
+}
+
+.pf-classic-shell .pf-spinner {
+  border: 2px solid var(--color-border-light);
+  border-top-color: var(--color-primary-light);
+  box-shadow: none;
+}
+
+.pf-classic-shell .pf-skeleton {
+  background: linear-gradient(90deg, var(--color-surface) 25%, var(--color-surface-2) 50%, var(--color-surface) 75%);
+  background-size: 200% 100%;
   border-radius: 8px;
 }

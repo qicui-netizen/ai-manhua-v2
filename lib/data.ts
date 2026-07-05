@@ -1,7 +1,10 @@
 // 常量数据:模板 / 画风 / 发布平台预设。
 import type { Character, TemplateType, TargetPlatform } from "./types";
 
-export type Style = { id: string; name: string; prompt: string; bg: [string, string]; referenceImageUrl?: string };
+// anchor:该画风的"黄金英文风格锚",比 prompt 更完整、更排他——写死这个风格的决定性视觉
+// 特征(比例/线条/上色/质感)。它会被原样钉在每一格生图指令的固定位置,是全篇风格一致性的
+// 唯一真源。切勿让 LLM 逐格自由翻译中文风格名(会措辞漂移导致同一篇出多种风格)。
+export type Style = { id: string; name: string; prompt: string; anchor: string; bg: [string, string]; referenceImageUrl?: string };
 
 export type Template = { id: TemplateType; name: string; panels: number; layout: string; desc: string; est: string };
 
@@ -53,12 +56,54 @@ export const CHARACTERS: Character[] = [
 export const DEFAULT_AVATAR_POOL = ["/placeholders/default-1.png", "/placeholders/default-2.png"];
 
 export const STYLES: Style[] = [
-  { id: "jp-anime", name: "日漫", prompt: "japanese manga style, clean lineart, cel shading", bg: ["#fbe9ec", "#e7eefb"] },
-  { id: "guofeng", name: "国漫", prompt: "chinese guofeng comic style, ink accents, elegant linework", bg: ["#f4f1e8", "#e3ece4"] },
-  { id: "kr-manhwa", name: "韩漫", prompt: "korean manhwa style, glossy skin, soft lighting", bg: ["#f3eefb", "#fbeef6"] },
-  { id: "chibi", name: "Q版", prompt: "chibi style, two-head-tall, big eyes, flat colors", bg: ["#fff3d6", "#ffe0e8"] },
-  { id: "thick-paint", name: "厚涂", prompt: "thick paint CG style, volumetric lighting, painterly texture", bg: ["#2a2440", "#3d3a52"] },
-  { id: "bw", name: "黑白", prompt: "black and white manga, screentone, high contrast", bg: ["#efefef", "#d8d8d8"] },
+  {
+    id: "jp-anime",
+    name: "日漫",
+    prompt: "japanese manga style, clean lineart, cel shading",
+    anchor:
+      "japanese anime manga style, clean thin lineart, flat cel-shading, natural head-to-body proportions, expressive anime eyes, soft anime coloring",
+    bg: ["#fbe9ec", "#e7eefb"],
+  },
+  {
+    id: "guofeng",
+    name: "国漫",
+    prompt: "chinese guofeng comic style, ink accents, elegant linework",
+    anchor:
+      "chinese guofeng comic style, elegant flowing linework, subtle ink-wash accents, refined semi-realistic proportions, delicate ornate detailing, muted traditional palette",
+    bg: ["#f4f1e8", "#e3ece4"],
+  },
+  {
+    id: "kr-manhwa",
+    name: "韩漫",
+    prompt: "korean manhwa style, glossy skin, soft lighting",
+    anchor:
+      "korean manhwa webtoon style, semi-realistic proportions, glossy smooth skin rendering, soft gradient shading, gentle ambient lighting, polished digital coloring",
+    bg: ["#f3eefb", "#fbeef6"],
+  },
+  {
+    id: "chibi",
+    name: "Q版",
+    prompt: "chibi style, two-head-tall, big eyes, flat colors",
+    anchor:
+      "chibi super-deformed style, strictly 2-head-tall proportions, oversized rounded head, tiny stubby body and limbs, huge sparkling round eyes, thick clean outlines, simple flat cheerful cel-shading",
+    bg: ["#fff3d6", "#ffe0e8"],
+  },
+  {
+    id: "thick-paint",
+    name: "厚涂",
+    prompt: "thick paint CG style, volumetric lighting, painterly texture",
+    anchor:
+      "thick-paint semi-realistic CG illustration, painterly brushstroke texture, rich volumetric lighting, soft rendered edges with no visible lineart, detailed rendering, cinematic color grading",
+    bg: ["#2a2440", "#3d3a52"],
+  },
+  {
+    id: "bw",
+    name: "黑白",
+    prompt: "black and white manga, screentone, high contrast",
+    anchor:
+      "black and white manga, pure monochrome grayscale, screentone dot shading, bold ink hatching, high contrast, no color at all",
+    bg: ["#efefef", "#d8d8d8"],
+  },
 ];
 
 // est 按全流程实测口径(进创作页到拿到成图,含编剧+生图+等待),不是理想生成段
@@ -101,4 +146,11 @@ export function visualStyleOf(styleId: string): string {
     "jp-anime": "日漫", guofeng: "国漫", "kr-manhwa": "韩漫", chibi: "Q版", "thick-paint": "厚涂", bw: "黑白",
   };
   return map[styleId] || "日漫";
+}
+
+// 画风 id → 黄金英文风格锚。全篇风格一致性的唯一真源:分镜 Agent 与生图 Agent 都原样
+// 使用这句话,而非各自翻译中文风格名。找不到时兜底到日漫锚,绝不返回空串
+// (空串会让下游退回"逐格自由翻译",正是风格漂移的根因)。
+export function styleAnchorOf(styleId: string): string {
+  return styleOf(styleId).anchor;
 }

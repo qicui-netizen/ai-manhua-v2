@@ -47,6 +47,8 @@ export default function NewCharacterPage() {
 
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
+  // 排他性标志特征(防多角色串脸):AI 识图自动填,用户可改;不填不阻塞
+  const [signatureFeatures, setSignatureFeatures] = useState("");
   const [personality, setPersonality] = useState("");
   const [ownershipType, setOwnershipType] = useState<"original_oc" | "fanwork">("original_oc");
   const [images, setImages] = useState<UploadedImage[]>([]);
@@ -55,6 +57,9 @@ export default function NewCharacterPage() {
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [styleHint, setStyleHint] = useState("");
+  // 首图身份指纹 + 多人提示:上传的后续图与首图明显不是同一人时,提示用户"做CP应分别建角色"
+  const [firstIdentity, setFirstIdentity] = useState("");
+  const [multiPersonWarn, setMultiPersonWarn] = useState(false);
   const [lockedTraits, setLockedTraits] = useState<LockedTraits>({
     face: "强锁定",
     hair: "强锁定",
@@ -88,8 +93,13 @@ export default function NewCharacterPage() {
           const merged = [...prev, ...uploaded].slice(0, 6);
           return merged.map((img, i) => ({ ...img, role: i === 0 ? ("primary" as const) : ("secondary" as const) }));
         });
-        // 首张主图上传后,AI 自动提取画风与人物形象填充外貌描述(用户可改;失败静默跳过)
-        if (isFirstBatch) analyzeMainImage(uploaded[0].url);
+        if (isFirstBatch) {
+          // 首张主图:AI 提取画风/外貌/标志特征填充(用户可改;失败静默跳过),并记住身份指纹
+          analyzeMainImage(uploaded[0].url);
+        } else if (firstIdentity) {
+          // 后续图:与首图身份指纹比对,明显不是同一人则提示"做CP应分别建角色"
+          checkSamePerson(uploaded[0].url);
+        }
       }
       const notices: string[] = [];
       if (uploaded.length < list.length) {
@@ -119,10 +129,32 @@ export default function NewCharacterPage() {
       if (data.appearance) {
         setDesc((prev) => (prev.trim() ? prev : [data.genderAge, data.appearance].filter(Boolean).join("，")));
       }
+      // 排他性标志特征同理:仅在用户未手写时自动填充
+      if (data.signatureFeatures) {
+        setSignatureFeatures((prev) => (prev.trim() ? prev : data.signatureFeatures));
+      }
+      // 记住首图身份指纹,供后续图比对是否同一人
+      if (data.identity) setFirstIdentity(data.identity);
     } catch {
       /* 解析失败不阻塞创建流程 */
     } finally {
       setAnalyzing(false);
+    }
+  }
+
+  // 后续上传图与首图比对:VLM 判定明显不是同一人时,提示用户拆分成多个角色(不强制拦截)
+  async function checkSamePerson(dataUrl: string) {
+    try {
+      const res = await fetch("/api/analyze-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageDataUrl: dataUrl, compareWith: firstIdentity }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.sameAsCompare === false) setMultiPersonWarn(true);
+    } catch {
+      /* 检测失败不阻塞,静默跳过 */
     }
   }
 
@@ -177,6 +209,7 @@ export default function NewCharacterPage() {
       source: images.length > 0 ? "photo_upload" : "text_only",
       ageFeel: "",
       canon: `${finalName},${desc || "外貌描述待补充"}${personality ? `,性格:${personality}` : ""}${styleHint ? `,画风参考:${styleHint}` : ""}`,
+      signatureFeatures: signatureFeatures.trim(),
       outfit: "",
       referenceImages,
       visual: { hair: "#7c3aed", hairStyle: "long", skin: "#ffe7d6", eye: "#374151", accent: "#a855f7" },
@@ -249,6 +282,7 @@ export default function NewCharacterPage() {
                 {uploading ? "上传中…" : images.length > 0 ? `已上传 ${images.length} 张，点击继续添加` : "上传参考图（强烈建议）"}
               </p>
               <p className="text-xs text-[var(--color-text-dim)]">最多 6 张，AI 会用第一张锁定角色一致性</p>
+              <p className="mt-1 text-xs text-[var(--color-primary-light)]">一张角色卡 = 同一个人的多张照片；想做双人／CP 请分别建两个角色，生成时再一起选中</p>
               <span className="pf-btn pf-btn-secondary mt-3 !inline-flex !min-h-9 !py-2 !px-4 text-sm">
                 选择图片
               </span>
@@ -271,6 +305,21 @@ export default function NewCharacterPage() {
                 {uploadError}
               </div>
             )}
+            {multiPersonWarn && (
+              <div className="-mt-2 mb-3 rounded-xl border border-[rgba(168,85,247,0.5)] bg-[rgba(168,85,247,0.12)] p-3 text-xs text-[var(--color-primary-light)]">
+                <p className="mb-1.5 font-semibold">这几张照片看起来不是同一个人？</p>
+                <p className="mb-2 leading-relaxed text-[var(--color-text-sub)]">
+                  一张角色卡只对应一个人。如果你想做双人／CP，请把每个人分别建成一个角色，生成漫画时再一起选中——这样两个人的长相都能保持稳定，不会「撞脸」或画糊。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setMultiPersonWarn(false)}
+                  className="rounded-lg bg-[rgba(168,85,247,0.2)] px-3 py-1 text-xs font-medium text-[var(--color-primary-light)]"
+                >
+                  我知道了，这就是同一个人
+                </button>
+              </div>
+            )}
 
             <div className="mb-5 flex flex-col gap-3">
               <div>
@@ -289,6 +338,18 @@ export default function NewCharacterPage() {
                   placeholder="粉色长发，红色瞳孔，活泼可爱的高中女生…（上传图片后 AI 自动识别填充）"
                   value={desc}
                   onChange={(e) => setDesc(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs text-[var(--color-text-sub)]">
+                  标志性特征
+                  <span className="ml-1.5 text-[var(--color-text-dim)]">多角色同框时防止「撞脸」</span>
+                </label>
+                <input
+                  className="pf-input"
+                  placeholder="泪痣、红围巾、右耳骨钉…越独特越不容易和别人画串（AI 自动识别，可改）"
+                  value={signatureFeatures}
+                  onChange={(e) => setSignatureFeatures(e.target.value)}
                 />
               </div>
               <div>

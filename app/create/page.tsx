@@ -2,7 +2,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { loadCharacters, saveProject, newId } from "@/lib/store";
-import { TEMPLATES, PLATFORMS, TONES, SYNOPSIS_EXAMPLES, styleOf, visualStyleOf } from "@/lib/data";
+import { TEMPLATES, PLATFORMS, TONES, SYNOPSIS_EXAMPLES, styleOf, visualStyleOf, styleAnchorOf } from "@/lib/data";
 import type { Character, TemplateType, TargetPlatform, ExpandedPlot, Panel } from "@/lib/types";
 
 type Phase = "input" | "expanding" | "confirm" | "error";
@@ -83,6 +83,7 @@ function CreatePageInner() {
           templateType,
           panelCount: template.panels,
           visualStyle: visualStyleOf(styleId),
+          styleAnchor: styleAnchorOf(styleId),
           lockedExpandedPlot: locked,
         }),
       });

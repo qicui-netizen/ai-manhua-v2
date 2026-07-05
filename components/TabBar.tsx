@@ -39,7 +39,7 @@ const ICONS: Record<string, React.ReactNode> = {
 export default function TabBar() {
   const pathname = usePathname();
   return (
-    <div className="flex items-center justify-around border-t border-[var(--color-border)] bg-[var(--color-surface)] py-2 pb-7">
+    <div className="relative z-20 flex items-center justify-around border-t border-white/80 bg-white/92 py-2 pb-7 shadow-[0_-14px_42px_rgba(4,5,28,0.2)] backdrop-blur">
       {TABS.map((t) => {
         const active = t.match(pathname);
         return (
@@ -48,10 +48,10 @@ export default function TabBar() {
             href={t.href}
             className="flex min-h-11 min-w-15 flex-col items-center justify-center gap-0.5 p-1"
           >
-            <span className={active ? "text-[var(--color-primary-light)] drop-shadow-[0_0_6px_rgba(124,58,237,0.6)]" : "text-[var(--color-text-dim)]"}>
+            <span className={active ? "text-[#7b3fff] drop-shadow-[0_0_7px_rgba(143,88,255,0.65)]" : "text-[rgba(25,24,58,0.42)]"}>
               {ICONS[t.label]}
             </span>
-            <span className={`text-xs font-medium ${active ? "text-[var(--color-primary-light)]" : "text-[var(--color-text-dim)]"}`}>
+            <span className={`text-xs font-semibold ${active ? "text-[#7b3fff]" : "text-[rgba(25,24,58,0.42)]"}`}>
               {t.label}
             </span>
           </Link>

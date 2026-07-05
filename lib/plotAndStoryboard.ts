@@ -65,7 +65,12 @@ vertical_strip：输出 4-8 格，适当拉伸构图，竖向阅读流畅
 [4 灯光] 光源类型（golden sunset backlight / soft diffused light / dramatic spotlight 等）
 [5 色彩] 色调方案（warm amber tones / muted palette / vivid complementary colors 等）
 [6 构图] 景别keyword + 视角keyword + 构图法则keyword
-[7 风格] 画风 + 质量标记（japanese manga style / 4k / highly detailed / soft watercolor 等）
+[7 风格] 【风格一致性铁律】必须把输入里给的 style_anchor 字段原文一字不差地作为第7层写在每一格
+   visual_prompt_hint 的结尾。禁止改写、翻译、增减或用近义词替换 style_anchor 里的任何词
+   （例如给的是 "chibi super-deformed style, strictly 2-head-tall proportions..."，就必须原样照抄，
+   不得写成 "cute chibi" 或 "SD style" 等别的措辞）。所有格子的第7层必须逐字完全相同，这是保证
+   整篇画风统一、不出现多种风格的唯一手段。style_anchor 已包含画风与质量描述，不要再自行添加
+   其他画风词或与之冲突的风格词（如给了黑白锚就不要再写任何彩色/color 词）。
 注意：绝对不要把 dialogue / caption 的文字写进 visual_prompt_hint。
 
 ## 输出规范
@@ -93,9 +98,30 @@ vertical_strip：输出 4-8 格，适当拉伸构图，竖向阅读流畅
 6. 【对话硬限制】全篇所有角色之间的对话来回总数不得超过8对。一问一答计为1对，旁白、内心独白、拟声词不计入
 7. 第二步的每一格必须能在 plot/beats 中找到对应依据，不得为了凑格数虚构 plot 里没有的情节
 8. 若输入包含 locked_expanded_plot，expanded_plot 字段原样返回该内容，直接进入第二步
-9. 【多角色点名】角色信息给出多个角色时，每格 character_action 必须用角色名点名本格
-   实际出场的角色（如"云绯伸手去拿布丁，墨白同时按住了盒子"），不得只用代词——
-   下游按角色名为每格匹配参考图，漏名字会导致该角色形象无法保持一致
+9. 【多角色同框优先·CP/双人刚需】角色信息给出多个角色时：
+   (a) 剧情 plot 与分镜要主动、频繁地把这些角色安排在同一画面里互动（对视/并肩/肢体接触/一递一接
+       等），这是同人/CP 创作的核心诉求。绝不允许把故事写成只有一个主角、其他角色沦为背景板或缺席
+       的独角戏。
+   (b) 【同框配额】以 4 格为例，至少 3 格必须是两人（或多人）同框；单人特写格全篇最多 1 格，且只用于
+       确有必要的情绪特写。9 格 / 条漫按同比例放宽，但单人格占比不得超过 1/4。
+   (c) 每格 character_action 必须用角色名点名本格画面里实际出现的**所有**角色（如"云绯伸手去拿布丁，
+       墨白同时按住了盒子"），不得只用代词、不得遗漏任何在场角色——下游按角色名为每格匹配参考图，
+       漏名字会导致该角色形象无法保持一致。哪怕某角色在本格是次要位置（如背景、侧身），只要画面里
+       有他，就必须在 character_action 里点到他的名字。
+   (d) visual_prompt_hint 第1层也要相应体现同框的多个角色（如"two boys, a blond boy and a
+       black-haired boy, facing each other"），不要只描述一个人。
+10.【格间连续性·治画面跳变】漫画是连续的,相邻格之间人物的站位、朝向、视线、手里的道具、情绪必须
+   自然承接,不能无缘由跳变(上一格坐着下一格不能凭空站起,上一格在门口下一格不能突然在桌边,
+   上一格拿着杯子下一格杯子不能消失)。为此:
+   (a) 从第2格起,每格必须输出 continuity_note,用一句话写明本格如何承接上一格——包括左右站位关系
+       (谁在左谁在右)、身体朝向、视线落点、关键道具的延续、情绪的推进方向。例:"承接上格,云绯仍在
+       画面左侧、墨白在右侧,云绯的视线从远处收回落到墨白脸上,情绪由紧张转为温柔"。第1格的
+       continuity_note 写本格建立的初始站位基线(如"建立基线:云绯居左、墨白居右,面向彼此")。
+   (b) 同一场景内的连续数格,人物的相对左右位置尽量保持稳定(符合漫画视线连贯原则),确需换位要在
+       continuity_note 里说明原因。
+   (c) 相邻两格的景别仍要有远近变化(见节奏规则),但站位/朝向的"空间逻辑"必须连续。
+   (d) visual_prompt_hint 里的构图描述要与 continuity_note 的站位一致(如 continuity_note 说云绯在左,
+       hint 的构图层不能把他放右边)。
 
 ━━━ 只输出下方 JSON，不要任何其他文字或 markdown ━━━
 
@@ -122,6 +148,7 @@ vertical_strip：输出 4-8 格，适当拉伸构图，竖向阅读流畅
       "camera": "",
       "character_action": "",
       "emotion": "",
+      "continuity_note": "",
       "dialogue": "",
       "caption": "",
       "visual_prompt_hint": ""
@@ -138,6 +165,9 @@ export type PlotAndStoryboardInput = {
   templateType: TemplateType;
   panelCount?: number; // vertical_strip 时生效
   visualStyle: string;
+  // 黄金英文风格锚:每格 visual_prompt_hint 第7层必须原文照抄这句,保证全篇画风统一。
+  // 与中文 visualStyle 并存——visualStyle 供 LLM 理解基调,styleAnchor 是写进出图提示词的权威原文。
+  styleAnchor: string;
   lockedExpandedPlot?: ExpandedPlot;
 };
 
@@ -161,6 +191,7 @@ function buildUserPrompt(input: PlotAndStoryboardInput): string {
 模板类型：${input.templateType}
 目标格数（仅 vertical_strip 生效）：${input.panelCount ?? ""}
 画面风格：${input.visualStyle}
+style_anchor（画风锚·必须原文照抄进每格 visual_prompt_hint 的第7层，逐字相同，不得改写/翻译/替换）：${input.styleAnchor}
 
 请严格按照 System Prompt 中约定的 JSON 结构返回，不附带任何解释文字。`;
 }
@@ -210,6 +241,7 @@ function fromSnakePanel(raw: any, index: number): Panel {
     camera: raw?.camera || "",
     characterAction: raw?.character_action || "",
     emotion: raw?.emotion || "",
+    continuityNote: raw?.continuity_note || "",
     dialogue: raw?.dialogue || "",
     caption: raw?.caption || "",
     visualPromptHint: raw?.visual_prompt_hint || "",
@@ -274,6 +306,8 @@ export function offlinePlotAndStoryboard(input: PlotAndStoryboardInput): PlotAnd
       riskNotes: [],
     };
 
+  // 离线兜底也把统一风格锚拼在 hint 结尾,保证降级路径下全篇画风依然一致(anchor 兜底日漫)
+  const anchor = input.styleAnchor || "japanese anime manga style, clean lineart, flat cel-shading";
   const panels: Panel[] = Array.from({ length: panelCount }, (_, i) => ({
     panelId: i + 1,
     beat: beats[Math.min(i, beats.length - 1)],
@@ -283,8 +317,7 @@ export function offlinePlotAndStoryboard(input: PlotAndStoryboardInput): PlotAnd
     emotion: "平静",
     dialogue: i === 1 ? expandedPlot.keyDialogues[0]?.replace(/[「」]/g, "") || "" : "",
     caption: i === 0 ? expandedPlot.scene.slice(0, 20) : "",
-    visualPromptHint:
-      "two anime characters in a soft afternoon campus scene, gentle emotional atmosphere, warm sunlight backlight, warm pastel tones, medium shot eye level rule of thirds, japanese manga style highly detailed 4k",
+    visualPromptHint: `two characters in a soft afternoon campus scene, gentle emotional atmosphere, warm sunlight backlight, warm pastel tones, medium shot eye level rule of thirds, ${anchor}`,
     status: "idle",
   }));
 
