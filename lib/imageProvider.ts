@@ -11,6 +11,18 @@ function pickProvider(): (input: GenerateImageInput) => Promise<GenerateImageRes
   return process.env.IMAGE_PROVIDER === "ark" ? generateImageArk : generateImageSiliconflow;
 }
 
+// 当前生图供应商是否具备可用的 API key。门禁应按供应商检查对应的 key:
+// 走 ark 却只配了 ARK_API_KEY 时,旧的"只查 SILICONFLOW_API_KEY"会误判为未配置而整批失败。
+export function hasImageProviderKey(): boolean {
+  return process.env.IMAGE_PROVIDER === "ark" ? !!process.env.ARK_API_KEY : !!process.env.SILICONFLOW_API_KEY;
+}
+
+// 当前供应商单次请求可接受的参考图上限(Qwen-Image-Edit=4, Seedream=14)。
+// 用于把"角色图 + 回喂基准图"按上限截断:角色身份图优先保留,回喂锚可裁。
+export function providerRefLimit(): number {
+  return process.env.IMAGE_PROVIDER === "ark" ? 14 : 4;
+}
+
 // 带 1 次重试的单格生成(对齐 PRD "失败自动重试1次,不扣额度" 的设计精神,
 // 简化为 HTTP/超时失败重试,不做 ArcFace 一致性检测,该能力列为 P1)。
 export async function generateImageWithRetry(

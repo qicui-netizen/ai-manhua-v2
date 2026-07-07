@@ -24,6 +24,12 @@ export type Character = {
   signatureFeatures?: string;
   outfit: string;
   referenceImages: UploadedImage[]; // 用户上传的真实参考图(0-6张)
+  // 角色黄金参考图(P1-1):建卡时以用户首张上传图为依据,AI 生成的一张标准化设定图——
+  // 纯白底、正面全身、统一成人比例、无水印/文字/背景杂物。用户上传的原图常杂乱(背景/画风/比例
+  // 不受控),直接当锚会让每格画风跟着乱;黄金图把"角色长什么样"从每格现场发挥变成照抄标准答案。
+  // 生图时优先用它当参考锚(见 lib/imageSlots.ts),referenceImages 仍是身份真值不被替换。
+  // 需用户在建卡页肉眼确认"像不像本人"后才启用(歪锚会污染该角色所有格,比不用更糟)。可选,旧数据无此字段。
+  characterSheet?: { url: string; sourceRefId: string; createdAt: number };
   visual: {
     hair: string;
     hairStyle: "short" | "long" | "ponytail";

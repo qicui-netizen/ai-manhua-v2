@@ -1,7 +1,8 @@
 "use client";
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { saveCharacter, newId } from "@/lib/store";
+import { saveCharacter, newId, spendQuota, getQuota } from "@/lib/store";
+import { persistRemoteImage } from "@/lib/persistImage";
 import { DEFAULT_AVATAR_POOL } from "@/lib/data";
 import LockTraitsEditor, { type LockedTraits } from "@/components/LockTraitsEditor";
 import type { Character, UploadedImage } from "@/lib/types";
@@ -71,6 +72,13 @@ function NewCharacterPageInner() {
   // 首图身份指纹 + 多人提示:上传的后续图与首图明显不是同一人时,提示用户"做CP应分别建角色"
   const [firstIdentity, setFirstIdentity] = useState("");
   const [multiPersonWarn, setMultiPersonWarn] = useState(false);
+  // P1-1 角色黄金参考图:以首图为依据 AI 生成的标准设定图。sheetUrl 为生成结果(已 persist 的 data URL),
+  // useSheet 记录用户是否选择启用它当锚。歪锚会污染该角色所有格,故必须让用户肉眼确认后才启用。
+  const [sheetUrl, setSheetUrl] = useState("");
+  const [sheetSourceId, setSheetSourceId] = useState(""); // 生成黄金图所依据的原图 id
+  const [sheetLoading, setSheetLoading] = useState(false);
+  const [sheetError, setSheetError] = useState("");
+  const [useSheet, setUseSheet] = useState(true); // 默认启用,用户可取消
   const [lockedTraits, setLockedTraits] = useState<LockedTraits>({
     face: "强锁定",
     hair: "强锁定",
@@ -105,8 +113,10 @@ function NewCharacterPageInner() {
           return merged.map((img, i) => ({ ...img, role: i === 0 ? ("primary" as const) : ("secondary" as const) }));
         });
         if (isFirstBatch) {
-          // 首张主图:AI 提取画风/外貌/标志特征填充(用户可改;失败静默跳过),并记住身份指纹
+          // 首张主图:并行做两件事——(1)AI 提取画风/外貌/标志特征填充并记住身份指纹;
+          // (2)P1-1 以首图为依据生成角色黄金参考图。二者都异步非阻塞,失败静默,不卡建卡。
           analyzeMainImage(uploaded[0].url);
+          generateSheet(uploaded[0].url, uploaded[0].id);
         } else if (firstIdentity) {
           // 后续图:与首图身份指纹比对,明显不是同一人则提示"做CP应分别建角色"
           checkSamePerson(uploaded[0].url);
@@ -153,6 +163,39 @@ function NewCharacterPageInner() {
     }
   }
 
+  // P1-1:以首图为依据生成角色黄金参考图(标准化设定图)。异步非阻塞,失败静默,不影响建卡。
+  // 生成后展示给用户确认"像不像本人",由用户决定是否启用当锚。
+  async function generateSheet(dataUrl: string, sourceId: string) {
+    if (getQuota() <= 0) {
+      setSheetError("本月额度已用完,已跳过标准设定图生成");
+      return;
+    }
+    setSheetLoading(true);
+    setSheetError("");
+    try {
+      const res = await fetch("/api/generate-character-sheet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageDataUrl: dataUrl, aspectRatio: "3:4" }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        setSheetError(data.error || "标准设定图生成失败,可直接用原图保存");
+        return;
+      }
+      // 生成成功即消耗 1 格额度(与生图口径一致,诚实计费);转存成持久 data URL 存入 localStorage
+      spendQuota(1);
+      const persisted = await persistRemoteImage(data.url);
+      setSheetUrl(persisted);
+      setSheetSourceId(sourceId);
+      setUseSheet(true);
+    } catch {
+      setSheetError("标准设定图生成失败,可直接用原图保存");
+    } finally {
+      setSheetLoading(false);
+    }
+  }
+
   // 后续上传图与首图比对:VLM 判定明显不是同一人时,提示用户拆分成多个角色(不强制拦截)
   async function checkSamePerson(dataUrl: string) {
     try {
@@ -176,6 +219,12 @@ function NewCharacterPageInner() {
         .map((img, i) => ({ ...img, role: i === 0 ? ("primary" as const) : ("secondary" as const) }))
     );
     setUploadError(""); // 删除后"已满6张"之类的过期提示立即清除
+    // 删掉的是黄金图所依据的原图时,黄金图也失去依据,一并清除(避免留下与当前首图无关的锚)
+    if (id === sheetSourceId) {
+      setSheetUrl("");
+      setSheetSourceId("");
+      setSheetError("");
+    }
   }
 
   function goBack() {
@@ -223,6 +272,10 @@ function NewCharacterPageInner() {
       signatureFeatures: signatureFeatures.trim(),
       outfit: "",
       referenceImages,
+      // P1-1:用户确认启用黄金图且它对应当前首图时,写入 characterSheet 当生图锚(见 lib/imageSlots.ts)
+      ...(useSheet && sheetUrl && sheetSourceId === images[0]?.id
+        ? { characterSheet: { url: sheetUrl, sourceRefId: sheetSourceId, createdAt: Date.now() } }
+        : {}),
       visual: { hair: "#7c3aed", hairStyle: "long", skin: "#ffe7d6", eye: "#374151", accent: "#a855f7" },
       lockedTraits,
       negativeTraits: [],
@@ -329,6 +382,37 @@ function NewCharacterPageInner() {
                 >
                   我知道了，这就是同一个人
                 </button>
+              </div>
+            )}
+
+            {/* P1-1 角色黄金参考图:生成中占位 / 生成后让用户肉眼确认是否启用当锚 */}
+            {sheetLoading && (
+              <div className="-mt-2 mb-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-xs text-[var(--color-text-sub)]">
+                <span className="text-[var(--color-primary-light)]">✦ 正在生成标准设定图…</span>
+                <span className="ml-1 text-[var(--color-text-dim)]">纯白底、正面全身、统一比例，用来锁定后续每格画风（约消耗 1 格额度）</span>
+              </div>
+            )}
+            {sheetError && !sheetLoading && (
+              <div className="-mt-2 mb-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-xs text-[var(--color-text-dim)]">
+                {sheetError}
+              </div>
+            )}
+            {sheetUrl && !sheetLoading && (
+              <div className="-mt-2 mb-3 rounded-xl border border-[rgba(168,85,247,0.4)] bg-[rgba(168,85,247,0.08)] p-3">
+                <p className="mb-2 text-xs font-semibold text-[var(--color-primary-light)]">已生成标准设定图</p>
+                <div className="mb-2.5 flex gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={sheetUrl} alt="角色标准设定图" className="h-28 w-21 flex-shrink-0 rounded-lg border border-[var(--color-border)] object-cover" />
+                  <p className="text-xs leading-relaxed text-[var(--color-text-sub)]">
+                    生成时会以这张干净的标准像当锚，让后续每一格的画风、比例更稳。
+                    <span className="text-[var(--color-primary-light)]">请确认它和你的角色是同一个人</span>——
+                    像就启用，不像就关掉、改用你上传的原图。
+                  </p>
+                </div>
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--color-text)]">
+                  <input type="checkbox" checked={useSheet} onChange={(e) => setUseSheet(e.target.checked)} className="h-4 w-4 accent-[var(--color-primary)]" />
+                  启用标准设定图当角色锚（推荐；取消则用上传的原图）
+                </label>
               </div>
             )}
 
